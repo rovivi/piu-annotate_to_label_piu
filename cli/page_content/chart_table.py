@@ -112,16 +112,19 @@ def get_chart_badges() -> dict[str, dict[str, any]]:
         ]
 
     all_chart_dicts = []
+    seen_shortnames = set()
     for cs_file in tqdm(chartstruct_files):
         chart_dict = dict()
         inp_fn = os.path.join(cs_folder, cs_file)
         cs = ChartStruct.from_file(inp_fn)
-        shortname = make_basename_url_safe(cs.metadata['shortname'])
         sord = cs.singles_or_doubles()
         level = cs.get_chart_level()
+        url_safe_shortname = make_basename_url_safe(cs.metadata['shortname'])
 
         # metadata
-        chart_dict['name'] = shortname
+        # chart_dict['name'] = cs.metadata['shortname']
+        # chart_dict['url-safe name'] = url_safe_shortname
+        chart_dict['name'] = url_safe_shortname
         chart_dict['sord'] = sord
         chart_dict['level'] = level
         chart_dict['pack'] = cs.metadata.get('pack', '')
@@ -169,9 +172,7 @@ def get_chart_badges() -> dict[str, dict[str, any]]:
         if len(roi) > 0:
             run_length = max(range_len(r) for r in roi)
         chart_dict['Sustain time'] = run_length
-
-        # nps
-        all_chart_dicts.append(chart_dict)
+        chart_dict['Total time under tension'] = sum(range_len(r) for r in roi)
 
         # also update metadata
         # todo - refactor this to occur elsewhere
@@ -180,6 +181,11 @@ def get_chart_badges() -> dict[str, dict[str, any]]:
         cs.metadata['notetype_bpm_summary'] = notetype_bpm_info
 
         cs.to_csv(os.path.join(cs_folder, cs_file))
+
+        if url_safe_shortname in seen_shortnames:
+            continue
+        seen_shortnames.add(url_safe_shortname)
+        all_chart_dicts.append(chart_dict)
 
     return all_chart_dicts
 
