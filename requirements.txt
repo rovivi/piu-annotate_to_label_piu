@@ -1,0 +1,8 @@
+lightgbm
+ruptures
+pandas
+numpy
+loguru
+tqdm
+scipy
+scikit-learn
