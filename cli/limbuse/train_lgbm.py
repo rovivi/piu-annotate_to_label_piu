@@ -107,38 +107,61 @@ def create_dataset(
 
 
 def train_categorical_model(
-    points: NDArray, 
-    labels: NDArray, 
-    feature_names: list[str]
-):
-    # train/test split
+    points: NDArray,
+    labels: NDArray,
+    feature_names: list[str],
+    model_name: str = '',
+) -> tuple:
+    """Returns (booster, train_acc, val_acc, evals_result)."""
     train_x, test_x, train_y, test_y = train_test_split(
-        points, labels, test_size = 0.1, random_state = 0
+        points, labels, test_size=0.1, random_state=0
     )
-    
+
+    cat_features = [fn for fn in feature_names if fn.startswith('cat.')]
     train_data = lgb.Dataset(
-        train_x, 
-        label = train_y, 
-        feature_name = feature_names,
-        categorical_feature = [fn for fn in feature_names if fn.startswith('cat.')],
+        train_x, label=train_y,
+        feature_name=feature_names, categorical_feature=cat_features,
     )
     test_data = lgb.Dataset(
-        test_x, 
-        label = test_y,
-        feature_name = feature_names,
-        categorical_feature = [fn for fn in feature_names if fn.startswith('cat.')],
+        test_x, label=test_y,
+        feature_name=feature_names, categorical_feature=cat_features,
     )
-    # force_col_wise should decrease memory usage
-    params = {'objective': 'binary', 'metric': 'binary_logloss', 'force_col_wise': True}
-    bst = lgb.train(params, train_data, valid_sets = [test_data])
 
-    # train pred
+    params = {
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'force_col_wise': True,
+        'num_leaves': 63,
+        'learning_rate': 0.05,
+        'min_data_in_leaf': 50,
+        'feature_fraction': 0.8,
+        'bagging_fraction': 0.8,
+        'bagging_freq': 5,
+        'verbose': -1,
+    }
+
+    evals_result: dict = {}
+    callbacks = [
+        lgb.early_stopping(stopping_rounds=50, verbose=False),
+        lgb.record_evaluation(evals_result),
+        lgb.log_evaluation(period=100),
+    ]
+
+    bst = lgb.train(
+        params, train_data,
+        num_boost_round=1000,
+        valid_sets=[train_data, test_data],
+        valid_names=['train', 'val'],
+        callbacks=callbacks,
+    )
+
     train_pred = bst.predict(train_x).round()
-    print(sum(train_pred == train_y) / len(train_y))
-
-    test_pred = bst.predict(test_x).round()
-    print(sum(test_pred == test_y) / len(test_y))
-    return bst
+    train_acc = float(sum(train_pred == train_y) / len(train_y))
+    val_pred = bst.predict(test_x).round()
+    val_acc = float(sum(val_pred == test_y) / len(test_y))
+    logger.info(f'{model_name}  train_acc={train_acc:.4f}  val_acc={val_acc:.4f}  '
+                f'best_iter={bst.best_iteration}')
+    return bst, train_acc, val_acc, evals_result
 
 
 def save_model(bst: Booster, name):
@@ -152,10 +175,43 @@ def save_model(bst: Booster, name):
     return
 
 
+def plot_training_curves(all_results: dict, singles_doubles: str, out_dir: str):
+    """Save a learning-curve PNG for every trained sub-model."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning('matplotlib not available – skipping training curves plot')
+        return
+
+    n = len(all_results)
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 4), squeeze=False)
+    fig.suptitle(f'LightGBM training curves – {singles_doubles}', fontsize=12)
+
+    for col, (model_name, info) in enumerate(all_results.items()):
+        ax = axes[0][col]
+        er = info['evals_result']
+        train_loss = er.get('train', {}).get('binary_logloss', [])
+        val_loss   = er.get('val',   {}).get('binary_logloss', [])
+        iters = range(1, len(train_loss) + 1)
+        ax.plot(iters, train_loss, label=f"train (final {train_loss[-1]:.4f})" if train_loss else 'train')
+        ax.plot(iters, val_loss,   label=f"val   (final {val_loss[-1]:.4f})"   if val_loss   else 'val',
+                linestyle='--')
+        ax.set_title(f"{model_name}\ntrain {info['train_acc']:.3%}  val {info['val_acc']:.3%}")
+        ax.set_xlabel('Boosting round')
+        ax.set_ylabel('Binary logloss')
+        ax.legend(fontsize=8)
+
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, f'training_curves_{singles_doubles}.png')
+    plt.savefig(out_path, dpi=130, bbox_inches='tight')
+    logger.info(f'Training curves saved to {out_path}')
+
+
 def main():
     folder = args['manual_chart_struct_folder']
-    
-    # crawl all subdirs for csvs
+
     csvs = []
     dirpaths = set()
     for dirpath, _, files in os.walk(folder):
@@ -165,25 +221,37 @@ def main():
                 dirpaths.add(dirpath)
     logger.info(f'Found {len(csvs)} csvs in {len(dirpaths)} directories ...')
 
-    label_func = lambda fcs: fcs.get_labels_from_limb_col('Limb annotation')
-    points, labels, feature_names = create_dataset(csvs, label_func, 'arrows_to_limb')
-    model = train_categorical_model(points, labels, feature_names)
-    save_model(model, 'arrows_to_limb')
+    singles_doubles = args.setdefault('singles_or_doubles', 'singles')
+    all_results: dict = {}
 
-    label_func = lambda fcs: fcs.get_labels_from_limb_col('Limb annotation')
-    points, labels, feature_names = create_dataset(csvs, label_func, 'arrowlimbs_to_limb', use_limb_features = True)
-    model = train_categorical_model(points, labels, feature_names)
-    save_model(model, 'arrowlimbs_to_limb')
+    tasks = [
+        ('arrows_to_limb',    lambda fcs: fcs.get_labels_from_limb_col('Limb annotation'), False),
+        ('arrowlimbs_to_limb',lambda fcs: fcs.get_labels_from_limb_col('Limb annotation'), True),
+        ('arrows_to_matchnext', lambda fcs: fcs.get_label_matches_next('Limb annotation'), False),
+        ('arrows_to_matchprev', lambda fcs: fcs.get_label_matches_prev('Limb annotation'), False),
+    ]
 
-    label_func = lambda fcs: fcs.get_label_matches_next('Limb annotation')
-    points, labels, feature_names = create_dataset(csvs, label_func, 'matchnext')
-    model = train_categorical_model(points, labels, feature_names)
-    save_model(model, 'arrows_to_matchnext')
+    for name, label_func, use_limb in tasks:
+        logger.info(f'--- {name} ---')
+        points, labels, feature_names = create_dataset(csvs, label_func, name, use_limb_features=use_limb)
+        bst, train_acc, val_acc, evals_result = train_categorical_model(
+            points, labels, feature_names, model_name=name,
+        )
+        save_model(bst, name)
+        all_results[name] = {
+            'train_acc': train_acc, 'val_acc': val_acc, 'evals_result': evals_result,
+        }
 
-    label_func = lambda fcs: fcs.get_label_matches_prev('Limb annotation')
-    points, labels, feature_names = create_dataset(csvs, label_func, 'matchprev')
-    model = train_categorical_model(points, labels, feature_names)
-    save_model(model, 'arrows_to_matchprev')
+    # Print summary table
+    logger.info('\n=== Training summary ===')
+    print(f'\n  {"model":<30}  {"train_acc":>9}  {"val_acc":>8}')
+    print(f'  {"-"*52}')
+    for name, info in all_results.items():
+        print(f'  {name:<30}  {info["train_acc"]:>9.4%}  {info["val_acc"]:>8.4%}')
+
+    # Save curves
+    out_dir = args.setdefault('out_dir', '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss')
+    plot_training_curves(all_results, singles_doubles, out_dir)
 
     logger.success('Done.')
     return

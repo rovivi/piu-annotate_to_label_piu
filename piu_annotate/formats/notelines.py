@@ -202,9 +202,9 @@ def frac_two_arrows_bracketable(lines: list[str]) -> float:
 
 
 bracketable_arrow_positions = [
-    [0, 2], [1, 2], [2, 3], [2, 4],
-    [5, 7], [6, 7], [7, 8], [7, 9],
-    [4, 5], [3, 6],
+    [0, 2], [1, 2], [3, 2], [4, 2], # Left pad
+    [4, 5], [3, 6],                 # Between pads
+    [5, 7], [6, 7], [8, 7], [9, 7]  # Right pad
 ]
 quads = [(b1, b2) for b1, b2 in itertools.combinations(bracketable_arrow_positions, 2)
          if len(set(b1 + b2)) == 4]

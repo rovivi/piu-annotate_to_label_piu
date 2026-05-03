@@ -19,6 +19,7 @@ from piu_annotate.ml.featurizers import ChartStructFeaturizer
 from piu_annotate.ml.models import ModelSuite
 from piu_annotate.ml.datapoints import ArrowDataPoint
 from piu_annotate.formats import notelines
+from piu_annotate.difficulty.travel import pos as pos_map
 from piu_annotate.reasoning.reasoners import LimbReusePattern
 
 
@@ -89,11 +90,89 @@ class Tactician:
 
         score_components = [
             log_prob_labels_withlimb,
-            np.mean([log_prob_labels_matches, log_prob_labels_matches_prev])
+            np.mean([log_prob_labels_matches, log_prob_labels_matches_prev]),
+            self.calculate_movement_score(pred_limbs)
         ]
         if debug:
             logger.debug(score_components)
         return sum(score_components)
+
+    def calculate_movement_score(self, pred_limbs: NDArray) -> float:
+        """ Penalize fast rotations and double-steps on different panels. """
+        # Initial positions: Left (1,2), Right (3,2) in the grid
+        L = np.array([1, 2], dtype=float)
+        R = np.array([3, 2], dtype=float)
+        
+        total_penalty = 0
+        prev_time = -0.5
+        prev_limb = -1
+        prev_arrow_pos = -1
+        consecutive_limb_count = 0
+        rotation_180_steps = 0
+        
+        for i, pc in enumerate(self.pred_coords):
+            curr_time = self.cs.df.at[pc.row_idx, 'Time']
+            dt = max(curr_time - prev_time, 0.001)
+            limb = pred_limbs[i]
+            pos = np.array(pos_map[pc.arrow_pos], dtype=float)
+            
+            # 1. Rotation penalty
+            body_vec = R - L
+            angle = math.atan2(body_vec[1], body_vec[0])
+            
+            if limb == 0: L = pos
+            else: R = pos
+            
+            new_body_vec = R - L
+            if np.linalg.norm(new_body_vec) > 0.1: # Avoid undefined angle if feet overlap
+                new_angle = math.atan2(new_body_vec[1], new_body_vec[0])
+                da = abs(new_angle - angle)
+                if da > math.pi: da = 2*math.pi - da
+                total_penalty += (da / dt) * 0.05 # w_rot
+                
+                # Check for 180 degree rotation (facing back)
+                # Angle 0 is facing front. pi or -pi is facing back.
+                if abs(new_angle) > 2.5: # ~143 degrees or more
+                    rotation_180_steps += 1
+                else:
+                    rotation_180_steps = 0
+                
+                if rotation_180_steps > 15:
+                    total_penalty += 10.0 # Penalty for staying rotated too long
+            
+            # 2. Jack / Footswitch & Parallel notes (triples/quads) logic
+            if pc.arrow_pos == prev_arrow_pos:
+                # Jack (same panel)
+                if limb == prev_limb:
+                    # Fast jack with same foot -> penalize
+                    if dt < 0.12:
+                        total_penalty += 5.0 / dt
+                else:
+                    # Footswitch (alternating feet on same panel)
+                    # Fast footswitch is GOOD
+                    if dt < 0.15:
+                        total_penalty -= 2.0 # Reward footswitch for speed
+            else:
+                # Different panel
+                if limb == prev_limb:
+                    # Same foot twice very fast on DIFFERENT panels -> heavy penalty
+                    if dt < 0.2:
+                        total_penalty += 3.0 / dt
+            
+            # 3. "Paralelas" (3 or more notes at the same time)
+            # We check the row context to see if this line has too many arrows
+            row_idx = pc.row_idx
+            row_pc_idxs = self.row_idx_to_pcs[row_idx]
+            if len(row_pc_idxs) >= 3:
+                # If this is a triple/quad, it's very hard with 2 feet
+                # We penalize using just feet for these "paralelas"
+                total_penalty += 10.0
+            
+            prev_time = curr_time
+            prev_limb = limb
+            prev_arrow_pos = pc.arrow_pos
+            
+        return -total_penalty
     
     def score_limbs_given_limbs(self, pred_limbs: NDArray) -> float:
         log_probs_withlimb = self.predict_arrowlimbs(pred_limbs, logp = True)

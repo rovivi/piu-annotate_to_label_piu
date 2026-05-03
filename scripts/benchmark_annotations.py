@@ -177,27 +177,14 @@ def pct(num, denom) -> str:
     return f'{100.0 * num / denom:.1f}%'
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--vis_dir', default=VIS_DIR)
-    parser.add_argument('--proc_dir', default=PROC_DIR)
-    parser.add_argument('--song', default=None, help='Filter by song name substring')
-    parser.add_argument('--mode', default=None, help='Filter by mode: S or D')
-    parser.add_argument('--show_worst', type=int, default=10, help='Show N worst charts by tap accuracy')
-    args = parser.parse_args()
-
-    print(f'Loading vis-ss index from {args.vis_dir}...')
-    vis_idx = load_vis_shortname_index(args.vis_dir)
-    print(f'  {len(vis_idx)} vis-ss charts indexed')
-
-    proc_files = [f for f in os.listdir(args.proc_dir) if f.endswith('.json')]
-    print(f'  {len(proc_files)} processed_db charts')
-
-    totals = defaultdict(int)
+def build_per_chart(proc_dir: str, vis_idx: dict, song_filter: str | None, mode_filter: str | None) -> tuple[list, defaultdict]:
+    """Load all charts, compare against vis-ss, return (per_chart list, totals dict)."""
+    proc_files = [f for f in os.listdir(proc_dir) if f.endswith('.json')]
+    totals: defaultdict = defaultdict(int)
     per_chart = []
 
     for fname in proc_files:
-        path = os.path.join(args.proc_dir, fname)
+        path = os.path.join(proc_dir, fname)
         try:
             proc = json.load(open(path))
         except Exception:
@@ -212,9 +199,9 @@ def main():
         mode = proc.get('mode', '')
         song_name = proc.get('song_name', '')
 
-        if args.song and args.song.lower() not in song_name.lower():
+        if song_filter and song_filter.lower() not in song_name.lower():
             continue
-        if args.mode and mode != args.mode:
+        if mode_filter and mode != mode_filter:
             continue
 
         ref_path = vis_idx.get(shortname)
@@ -232,17 +219,153 @@ def main():
             continue
 
         tap_acc = stats['tap_correct'] / max(stats['tap_total'], 1)
+        level = proc.get('level')
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            level = 0
+
         per_chart.append({
             'shortname': shortname,
             'song_name': song_name,
             'mode': mode,
-            'level': proc.get('level', '?'),
+            'level': level,
             'tap_acc': tap_acc,
             'stats': stats,
         })
-
         for k, v in stats.items():
             totals[k] += v
+
+    return per_chart, totals
+
+
+def plot_results(per_chart: list, totals: defaultdict, out_path: str = 'benchmark_charts.png'):
+    """Generate a 2x2 matplotlib figure summarising benchmark results."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('PIU Limb Annotation – Benchmark Results', fontsize=14, fontweight='bold')
+
+    # ── 1. Accuracy breakdown bar chart ──────────────────────────────────────
+    ax = axes[0, 0]
+    categories = ['Overall tap', 'Triple taps', 'Jacks/repeated', 'Single non-rep', 'Hold']
+    keys_correct = ['tap_correct', 'triple_tap_correct', 'repeated_tap_correct',
+                    'single_non_repeated_correct', 'hold_correct']
+    keys_total   = ['tap_total',   'triple_tap_total',   'repeated_tap_total',
+                    'single_non_repeated_total', 'hold_total']
+    keys_fixed   = ['tap_fixed_correct', 'triple_tap_fixed_correct', 'repeated_tap_fixed_correct',
+                    'single_non_repeated_fixed_correct', None]
+
+    vals_cur, vals_fix = [], []
+    for kc, kt, kf in zip(keys_correct, keys_total, keys_fixed):
+        cur  = 100.0 * totals[kc]  / max(totals[kt], 1)
+        fix  = 100.0 * totals[kf]  / max(totals[kt], 1) if kf else cur
+        vals_cur.append(cur)
+        vals_fix.append(fix)
+
+    x = range(len(categories))
+    bars1 = ax.bar([i - 0.2 for i in x], vals_cur, width=0.35, label='Current', color='steelblue')
+    bars2 = ax.bar([i + 0.2 for i in x], vals_fix, width=0.35, label='With naturalness fix', color='darkorange', alpha=0.8)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(categories, rotation=20, ha='right', fontsize=9)
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_ylim(0, 105)
+    ax.axhline(100, color='gray', linestyle='--', linewidth=0.5)
+    for bar in bars1:
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f'{bar.get_height():.1f}%', ha='center', va='bottom', fontsize=7)
+    ax.legend(fontsize=8)
+    ax.set_title('Accuracy by note type')
+
+    # ── 2. Accuracy by difficulty level (scatter) ────────────────────────────
+    ax = axes[0, 1]
+    levels_s = [c['level'] for c in per_chart if c['mode'] == 'S']
+    accs_s   = [c['tap_acc'] * 100 for c in per_chart if c['mode'] == 'S']
+    levels_d = [c['level'] for c in per_chart if c['mode'] == 'D']
+    accs_d   = [c['tap_acc'] * 100 for c in per_chart if c['mode'] == 'D']
+    ax.scatter(levels_s, accs_s, alpha=0.3, s=12, color='steelblue', label='Singles')
+    ax.scatter(levels_d, accs_d, alpha=0.3, s=12, color='firebrick', label='Doubles')
+
+    # per-level median line
+    from collections import defaultdict as dd
+    lv_acc: dict = dd(list)
+    for c in per_chart:
+        lv_acc[c['level']].append(c['tap_acc'] * 100)
+    sorted_lvs = sorted(lv_acc)
+    medians = [float(sum(lv_acc[lv]) / len(lv_acc[lv])) for lv in sorted_lvs]
+    ax.plot(sorted_lvs, medians, 'k-o', markersize=3, linewidth=1.2, label='Mean per level')
+
+    ax.set_xlabel('Difficulty level')
+    ax.set_ylabel('Tap accuracy (%)')
+    ax.set_ylim(0, 105)
+    ax.legend(fontsize=8)
+    ax.set_title('Tap accuracy vs difficulty level')
+
+    # ── 3. Worst 30 charts horizontal bar ────────────────────────────────────
+    ax = axes[1, 0]
+    worst30 = sorted(per_chart, key=lambda c: c['tap_acc'])[:30]
+    labels  = [f"{c['shortname'][:35]}  (lv{c['level']})" for c in worst30]
+    vals    = [c['tap_acc'] * 100 for c in worst30]
+    colors  = ['#d73027' if v < 50 else '#fc8d59' if v < 70 else '#fee090' for v in vals]
+    bars = ax.barh(range(len(labels)), vals, color=colors)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=6)
+    ax.set_xlabel('Tap accuracy (%)')
+    ax.set_xlim(0, 105)
+    ax.axvline(100, color='gray', linestyle='--', linewidth=0.5)
+    ax.invert_yaxis()
+    ax.set_title('30 worst charts by tap accuracy')
+    patches = [mpatches.Patch(color='#d73027', label='<50%'),
+               mpatches.Patch(color='#fc8d59', label='50–70%'),
+               mpatches.Patch(color='#fee090', label='70–80%')]
+    ax.legend(handles=patches, fontsize=7, loc='lower right')
+
+    # ── 4. Top 30 hardest charts accuracy ────────────────────────────────────
+    ax = axes[1, 1]
+    hardest30 = sorted(per_chart, key=lambda c: (-c['level'], c['tap_acc']))[:30]
+    labels_h  = [f"{c['shortname'][:35]}  (lv{c['level']})" for c in hardest30]
+    vals_h    = [c['tap_acc'] * 100 for c in hardest30]
+    jacks_h   = [100.0 * c['stats']['repeated_tap_correct'] / max(c['stats']['repeated_tap_total'], 1)
+                 for c in hardest30]
+    ax.barh(range(len(labels_h)), vals_h, color='steelblue', alpha=0.7, label='Overall tap')
+    ax.barh(range(len(labels_h)), jacks_h, color='firebrick', alpha=0.6, label='Jack/repeated')
+    ax.set_yticks(range(len(labels_h)))
+    ax.set_yticklabels(labels_h, fontsize=6)
+    ax.set_xlabel('Accuracy (%)')
+    ax.set_xlim(0, 105)
+    ax.axvline(100, color='gray', linestyle='--', linewidth=0.5)
+    ax.invert_yaxis()
+    ax.legend(fontsize=7, loc='lower right')
+    ax.set_title('Top 30 hardest charts: overall vs jack accuracy')
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches='tight')
+    print(f'\nChart saved to: {out_path}')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--vis_dir', default=VIS_DIR)
+    parser.add_argument('--proc_dir', default=PROC_DIR)
+    parser.add_argument('--song', default=None, help='Filter by song name substring')
+    parser.add_argument('--mode', default=None, help='Filter by mode: S or D')
+    parser.add_argument('--show_worst', type=int, default=10, help='Show N worst charts by tap accuracy')
+    parser.add_argument('--top_diff', type=int, default=30, help='Show top N hardest charts')
+    parser.add_argument('--plot', action='store_true', help='Generate matplotlib charts (saved to benchmark_charts.png)')
+    parser.add_argument('--plot_out', default='benchmark_charts.png', help='Output path for plot')
+    args = parser.parse_args()
+
+    print(f'Loading vis-ss index from {args.vis_dir}...')
+    vis_idx = load_vis_shortname_index(args.vis_dir)
+    print(f'  {len(vis_idx)} vis-ss charts indexed')
+
+    proc_files = [f for f in os.listdir(args.proc_dir) if f.endswith('.json')]
+    print(f'  {len(proc_files)} processed_db charts')
+
+    per_chart, totals = build_per_chart(args.proc_dir, vis_idx, args.song, args.mode)
 
     print(f'\n=== BENCHMARK: {len(per_chart)} matched charts ===\n')
     print(f'  {"":35}  {"current":>7}  {"with_fix":>8}')
@@ -273,6 +396,17 @@ def main():
               f"triple={triple_acc}  jack={jack_acc}  "
               f"{c['shortname']}")
 
+    print(f'\n=== TOP {args.top_diff} HARDEST CHARTS (by level) ===\n')
+    hardest = sorted(per_chart, key=lambda x: (-x['level'], x['tap_acc']))[:args.top_diff]
+    print(f'  {"shortname":<45}  {"lv":>3}  {"tap":>7}  {"jack":>7}  {"triple":>7}')
+    print(f'  {"-"*80}')
+    for c in hardest:
+        s = c['stats']
+        print(f"  {c['shortname']:<45}  {c['level']:>3}  "
+              f"{pct(s['tap_correct'], s['tap_total']):>7}  "
+              f"{pct(s['repeated_tap_correct'], s['repeated_tap_total']):>7}  "
+              f"{pct(s['triple_tap_correct'], s['triple_tap_total']):>7}")
+
     # Summary by mode
     print('\n=== BY MODE ===\n')
     for m in ['S', 'D']:
@@ -289,6 +423,9 @@ def main():
         row('  Tap overall', tap_c, tap_t)
         row('  Triple taps', tri_c, tri_t)
         row('  Repeated/jack taps', rep_c, rep_t)
+
+    if args.plot:
+        plot_results(per_chart, totals, args.plot_out)
 
 
 if __name__ == '__main__':

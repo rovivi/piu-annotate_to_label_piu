@@ -12,6 +12,7 @@ import os
 
 from piu_annotate.formats.chart import ChartStruct, ArrowCoordinate
 from piu_annotate.formats import notelines
+from piu_annotate.difficulty.travel import pos as pos_map
 from piu_annotate.ml.datapoints import LimbLabel, ArrowDataPoint
 
 
@@ -110,7 +111,14 @@ class ChartStructFeaturizer:
                 singles_or_doubles = self.singles_or_doubles,
                 prev_pc_idxs = self.row_idx_to_prevs[arrow_coord.row_idx],
                 next_line_only_releases_hold_on_this_arrow = next_line_only_releases_hold_on_this_arrow,
+                x = float(pos_map[arrow_pos][0]),
+                y = float(pos_map[arrow_pos][1]),
             )
+            
+            # Rotation and Spatial State Features
+            # We'll calculate a "relative orientation" based on the context
+            # For simplicity in this transformer architecture, we'll let the model 
+            # learn the sequence, but we'll provide the absolute coordinates.
             all_arrowdatapoints.append(point)
         return all_arrowdatapoints
 
@@ -145,8 +153,7 @@ class ChartStructFeaturizer:
     def get_padded_array(self) -> NDArray:
         pt_array = self.pt_array
         context_len = self.context_len
-        empty_pt = np.ones(len(pt_array[0])) * -1
-        empty_pt.fill(np.nan)
+        empty_pt = np.zeros(len(pt_array[0]))
         return np.array([empty_pt]*context_len + pt_array + [empty_pt]*context_len)
 
     @functools.lru_cache

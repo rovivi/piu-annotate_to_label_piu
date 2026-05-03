@@ -18,9 +18,11 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 from lightgbm import Booster
+import mlx.core as mx
+from piu_annotate.ml.mlx_architecture import LimbTransformer
 
 
-supported_models = ['lightgbm']
+supported_models = ['lightgbm', 'mlx']
 
 
 class ModelWrapper:
@@ -58,6 +60,16 @@ class ModelSuite:
         model_file = os.path.join(args['model.dir'], args[model_name])
         if self.model_type == 'lightgbm':
             model = LGBModel.load(model_file)
+        elif self.model_type == 'mlx':
+            is_arrow_only = 'arrows_to_limb' in model_name or 'match' in model_name
+            suffix = 'arrows_to_limb' if is_arrow_only else 'arrowlimbs_to_limb'
+            model_file = os.path.join(args['model.dir'], f"{self.singles_or_doubles}-{suffix}-mlx_model.safetensors")
+            
+            if self.singles_or_doubles == 'singles':
+                input_dim = 698 if is_arrow_only else 755
+            else:
+                input_dim = 903 if is_arrow_only else 960
+            model = MLXModel.load(model_file, input_dim=input_dim)
         return model
 
 
@@ -93,5 +105,39 @@ class LGBModel(ModelWrapper):
     
     def predict_log_prob(self, points: NDArray) -> NDArray:
         """ For N points, returns N x 2 array of logp(0) and logp(1) """
+        return np.log(self.predict_prob(points))
+
+
+class MLXModel(ModelWrapper):
+    def __init__(self, model: LimbTransformer):
+        self.model = model
+
+    @staticmethod
+    def load(file: str, input_dim: int):
+        model = LimbTransformer(input_dim=input_dim)
+        model.load_weights(file)
+        return MLXModel(model)
+
+    def predict(self, points: NDArray) -> NDArray:
+        x = mx.array(points).astype(mx.float32)
+        if len(x.shape) == 2:
+            x = x[None] # Add batch dim
+        out = self.model(x)
+        # out shape: (batch, seq, 1)
+        prob = mx.sigmoid(out)
+        return np.array((prob > 0.5).astype(mx.int32)).squeeze()
+
+    def predict_prob(self, points: NDArray) -> NDArray:
+        x = mx.array(points).astype(mx.float32)
+        if len(x.shape) == 2:
+            x = x[None]
+        out = self.model(x)
+        p = np.array(mx.sigmoid(out)).squeeze()
+        if len(p.shape) == 0:
+            p = p.item()
+            return np.array([[1 - p, p]])
+        return np.stack([1 - p, p]).T
+    
+    def predict_log_prob(self, points: NDArray) -> NDArray:
         return np.log(self.predict_prob(points))
     

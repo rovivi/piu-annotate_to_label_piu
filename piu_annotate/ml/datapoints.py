@@ -6,6 +6,7 @@ import pandas as pd
 from loguru import logger
 
 from piu_annotate.formats import notelines
+from piu_annotate.difficulty.travel import pos as pos_map
 
 
 @dataclass
@@ -28,6 +29,8 @@ class ArrowDataPoint:
     singles_or_doubles: str
     prev_pc_idxs: list[int | None]
     next_line_only_releases_hold_on_this_arrow: bool
+    x: float = 0.0
+    y: float = 0.0
 
     def to_array_categorical(self) -> NDArray:
         """ Featurize, using int for categorical features """
@@ -44,6 +47,8 @@ class ArrowDataPoint:
             int(self.line_is_bracketable),
             int(self.line_repeats_previous_downpress_line),
             int(self.line_repeats_next_downpress_line),
+            self.x,
+            self.y,
         ]
         return np.concatenate([np.array(fts), line_ft])
 
@@ -62,7 +67,9 @@ class ArrowDataPoint:
             'num_downpress_in_line',
             'line_is_bracketable',
             'line_repeats_previous_downpress_line',
-            'line_repeats_next_downpress_line'
+            'line_repeats_next_downpress_line',
+            'x',
+            'y'
         ] + line_ft_names
         assert len(ft_names) == len(self.to_array_categorical())
         return ft_names
