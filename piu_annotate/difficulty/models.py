@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Models for predicting difficulty
 """
@@ -22,10 +23,10 @@ class DifficultySegmentModelPredictor:
     def __init__(self):
         self.model_path = args.setdefault(
             'segment_difficulty_models_path',
-            '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/'
+            '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/'
         )
 
-        stepchart_dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts/datasets/temp.pkl'
+        stepchart_dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts/datasets/temp.pkl'
         with open(stepchart_dataset_fn, 'rb') as f:
             dataset = pickle.load(f)
         self.stepchart_dataset = dataset
@@ -159,10 +160,10 @@ class DifficultyStepchartModelPredictor:
         """
         self.model_path = args.setdefault(
             'stepchart_difficulty_models_path',
-            '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts'
+            '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts'
         )
 
-        dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts/datasets/temp.pkl'
+        dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts/datasets/temp.pkl'
         with open(dataset_fn, 'rb') as f:
             dataset = pickle.load(f)
         self.dataset = dataset

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -77,15 +78,15 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_json_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/manual-jsons/manual-annot-101824/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-jsons/manual-annot-101824/',
     )
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424',
     )
     parser.add_argument(
         '--output_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/101824/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/101824/',
     )
     args.parse_args(parser)
     main()

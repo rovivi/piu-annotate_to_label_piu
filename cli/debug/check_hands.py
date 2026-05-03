@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -73,12 +74,12 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-120524/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-120524/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424',
     )
     parser.add_argument(
         '--csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-110424/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-110424/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
     )
     args.parse_args(parser)
     main()

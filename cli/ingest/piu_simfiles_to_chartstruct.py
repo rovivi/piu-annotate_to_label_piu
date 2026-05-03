@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Crawls PIU-Simfiles folder
 """
@@ -72,7 +73,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--output_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/rayden-072924/'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/rayden-072924/'
     )
     args.parse_args(parser)
     main()

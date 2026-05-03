@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 import os
 import difflib
@@ -128,7 +129,7 @@ def predict_limbs_pattern_only(cs: ChartStruct) -> None:
     limb_strs = [int_to_limb[int(x)] for x in pred_limbs]
     cs.add_limb_annotations(pred_coords, limb_strs, 'Limb annotation')
 
-MODEL_DIR = '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss'
+MODEL_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss'
 
 
 def setup_model_args(model_dir: str) -> None:
@@ -176,7 +177,7 @@ def fuzzy_match_song_name(query: str, targets: list[str]) -> str | None:
         return close_matches[0]
     return None
 
-VIS_SS_DIR = '/home/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
+VIS_SS_DIR = '/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
 
 
 def load_vis_shortnames(vis_dir: str) -> set[str]:
@@ -195,9 +196,9 @@ def main():
                         help='Only process charts that lack a vis-ss ground truth file')
     pargs = parser.parse_args()
 
-    db_json_path = '/home/rodrigo/dev/piu/ligas-piu-api/master_db.json'
-    simfiles_folder = '/home/rodrigo/dev/piu/piu_sim_files/'
-    output_dir = '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/processed_db'
+    db_json_path = '/Users/rodrigo/dev/piu/ligas-piu-api/master_db.json'
+    simfiles_folder = '/Users/rodrigo/dev/piu/piu_sim_files/'
+    output_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/processed_db'
 
     os.makedirs(output_dir, exist_ok=True)
 

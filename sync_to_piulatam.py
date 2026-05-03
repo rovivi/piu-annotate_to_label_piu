@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Copies processed_db JSONs to piulatam/public/chart-jsons/{chart_id}.json
 Run after process_db_matches.py finishes.
@@ -5,7 +6,7 @@ Run after process_db_matches.py finishes.
 import os, json, shutil
 
 src = 'artifacts/processed_db'
-dst = '/home/rodrigo/dev/piu/piulatam/public/chart-jsons'
+dst = '/Users/rodrigo/dev/piu/piulatam/public/chart-jsons'
 
 os.makedirs(dst, exist_ok=True)
 copied = skipped = 0

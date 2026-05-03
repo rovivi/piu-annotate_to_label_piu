@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Make search json data structure, for search bar: list all chart json files
     available in a folder
@@ -56,7 +57,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--chart_json_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/r0729-ae0728-092124/lgbm-092124/chart-json/'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/r0729-ae0728-092124/lgbm-092124/chart-json/'
     )
     args.parse_args(parser)
     main()

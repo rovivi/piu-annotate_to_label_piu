@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import itertools
 
@@ -49,7 +50,7 @@ def calc_travel(run_lines: list[str]) -> list[float]:
 
     dists = []
     for lines_group in [evens, odds]:
-        for point1, point2 in itertools.pairwise(lines_group):
+        for point1, point2 in zip(lines_group, itertools.islice(lines_group, 1, None)):
             dist = np.linalg.norm(point1 - point2) / 250
             dists.append(dist)
 

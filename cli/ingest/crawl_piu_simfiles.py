@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Crawls PIU-Simfiles folder
 """
@@ -69,7 +70,7 @@ def main():
     stepchart_df.to_csv('__standard_stepcharts.csv')
     logger.info(f'Wrote to __standard_stepcharts.csv')
 
-    problem_dir = '/home/maxwshen/piu-annotate/output/problematic-ssc/'
+    problem_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/output/problematic-ssc/'
     n_files_written = 0
     for stepchart, num_bad_lines in zip(standard_stepcharts, mp_num_bad_lines):
         if num_bad_lines > 0:

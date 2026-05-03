@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     ChartStruct segmentation and description
 """
@@ -183,7 +184,7 @@ def segment_drills(cs: ChartStruct, section: Section) -> list[Section]:
 
     # section before first drill
     sections = [Section(section.start_time, times[drills[0][0] - 1])]
-    for d1, d2 in itertools.pairwise(drills):
+    for d1, d2 in zip(drills, itertools.islice(drills, 1, None)):
         # append section for drill1
         sections.append(Section(times[d1[0]], times[d1[1]]))
 

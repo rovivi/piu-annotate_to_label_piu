@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pytest
 from piu_annotate.formats.chart import ChartStruct, is_active_symbol, ArrowCoordinate
 

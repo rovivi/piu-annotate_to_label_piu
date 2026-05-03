@@ -1,0 +1,37 @@
+Loading vis-ss index from /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524...
+  4123 vis-ss charts indexed
+  4372 processed_db charts
+
+=== BENCHMARK: 3703 matched charts ===
+
+                                       current  with_fix
+  -------------------------------------------------------
+  Tap accuracy                          82.3%     82.3%  (1399909/1701855)
+    - Triple taps                       83.0%     83.0%  (36833/44369)
+    - Repeated/jack taps                71.2%     71.2%  (118812/166847)
+    - Single non-repeated               83.5%     83.5%  (1251530/1499522)
+  Hold accuracy                         73.5%  (204564/278317)
+
+=== WORST 10 CHARTS by tap accuracy ===
+
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D17_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D18_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_S3_ARCADE
+    13.6%  triple=n/a  jack=55.6%  Discord_-_QWER_S3_ARCADE
+    13.6%  triple=n/a  jack=55.6%  Discord_-_QWER_S3_ARCADE
+    15.3%  triple=n/a  jack=53.3%  Turkey_March_-_BanYa_S3_ARCADE
+    15.3%  triple=n/a  jack=53.3%  Turkey_March_-_BanYa_S3_ARCADE
+    16.4%  triple=n/a  jack=46.2%  Nxde_-_(G)I-DLE_S2_ARCADE
+    16.4%  triple=n/a  jack=46.2%  Nxde_-_(G)I-DLE_S2_ARCADE
+    19.1%  triple=n/a  jack=60.7%  Super_Fantasy_-_SHK_S4_ARCADE
+
+=== BY MODE ===
+
+  Mode S (2390 charts):
+    Tap overall                         82.1%  (822285/1001950)
+    Triple taps                         74.5%  (15118/20306)
+    Repeated/jack taps                  71.0%  (77835/109586)
+  Mode D (1313 charts):
+    Tap overall                         82.5%  (577624/699905)
+    Triple taps                         90.2%  (21715/24063)
+    Repeated/jack taps                  71.6%  (40977/57261)

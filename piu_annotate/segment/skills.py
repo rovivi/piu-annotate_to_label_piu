@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Annotate a ChartStruct with skills columns
 """
@@ -150,7 +151,7 @@ def run(cs: ChartStruct) -> None:
     ts = list(df['__time since prev downpress'])
     
     idxs = set()
-    for i, j in itertools.pairwise(range(len(df))):
+    for i, j in zip(range(len(df)), itertools.islice(range(len(df)), 1, None)):
         crits = [
             set(limb_annots[i]) != set(limb_annots[j]),
             len(set(limb_annots[i])) == 1,
@@ -263,7 +264,7 @@ def staggered_brackets(cs: ChartStruct) -> None:
     ts = list(df['__time since prev downpress'])
 
     res = [False]
-    for i, j in itertools.pairwise(range(len(df))):
+    for i, j in zip(range(len(df)), itertools.islice(range(len(df)), 1, None)):
         crits = [
             notelines.has_one_1(lines[i]),
             notelines.has_one_1(lines[j]),
@@ -568,7 +569,7 @@ def jack(cs: ChartStruct) -> None:
     ts = list(df['__time since prev downpress'])
 
     res = [False]
-    for i, j in itertools.pairwise(range(len(df))):
+    for i, j in zip(range(len(df)), itertools.islice(range(len(df)), 1, None)):
         crits = [
             lines[j] == lines[i],
             notelines.num_downpress(lines[i]) == 1,
@@ -587,7 +588,7 @@ def footswitch(cs: ChartStruct) -> None:
     limb_annots = list(df['Limb annotation'])
 
     res = [False]
-    for i, j in itertools.pairwise(range(len(df))):
+    for i, j in zip(range(len(df)), itertools.islice(range(len(df)), 1, None)):
         crits = [
             lines[j] == lines[i],
             notelines.num_downpress(lines[i]) == 1,
@@ -880,7 +881,7 @@ def cross_pad_transition(cs: ChartStruct) -> None:
             limbs = [limb_annots[i] for i in idxs]
 
             matches_pattern = all(l == pl for l, pl in zip(dp_lines, pattern))
-            alternates = all([l1 != l2 for l1, l2 in itertools.pairwise(limbs)])
+            alternates = all([l1 != l2 for l1, l2 in zip(limbs, itertools.islice(limbs, 1, None))])
 
             if matches_pattern and alternates:
                 vals[line_idxs[start : end]] = True

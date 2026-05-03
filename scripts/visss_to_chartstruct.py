@@ -1,3 +1,4 @@
+from __future__ import annotations
 #!/usr/bin/env python3
 """
 Convert vis-ss JSON format to ChartStruct CSV format for ML training.
@@ -17,8 +18,8 @@ from pathlib import Path
 from collections import defaultdict
 from tqdm import tqdm
 
-VISS_DIR = "/home/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524"
-OUT_DIR = "/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524"
+VISS_DIR = "/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524"
+OUT_DIR = "/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524"
 
 
 def parse_viss_json(filepath):

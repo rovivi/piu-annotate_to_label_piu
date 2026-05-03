@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Featurize ChartStruct (whole or segment) for difficulty prediction model
 """
@@ -412,7 +413,7 @@ class DifficultyStepchartFeaturizer:
 
 
 if __name__ == '__main__':
-    folder = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/'
+    folder = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/'
     # fn = 'Dement_~After_Legend~_-_Lunatic_Sounds_D26_ARCADE.csv'
     # fn = 'X-Rave_-_SHORT_CUT_-_-_DM_Ashura_D18_SHORTCUT.csv'
     # fn = 'Conflict_-_Siromaru_+_Cranky_D25_ARCADE.csv'

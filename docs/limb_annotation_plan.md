@@ -335,7 +335,7 @@ El `Tactician` los combina iterativamente. Esto es lo que da accuracy alta en ja
 
 ### Datos de entrenamiento
 
-**Fuente:** 3 703 charts vis-ss en `/home/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524/`.
+**Fuente:** 3 703 charts vis-ss en `/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524/`.
 
 **Formato vis-ss** (cada `.json` es `[taps, holds, metadata]`):
 - tap: `[panel, time, "l"|"r"]`
@@ -470,8 +470,8 @@ accuracy en ese set para evitar engañarse con leakage por canción.
 | `scripts/benchmark_annotations.py` | Benchmark rule-based vs vis-ss |
 | `sync_to_piulatam.py` | Copia processed_db → piulatam (solo los 660 sin vis-ss) |
 | `artifacts/processed_db/` | 4 372 charts procesados |
-| `/home/rodrigo/dev/piu/piulatam/public/chart-jsons/` | Destino final del visualizador |
-| `/home/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524/` | Ground truth vis-ss (4 124 charts) |
+| `/Users/rodrigo/dev/piu/piulatam/public/chart-jsons/` | Destino final del visualizador |
+| `/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524/` | Ground truth vis-ss (4 124 charts) |
 
 **Infra ML existente (reusar, no reescribir)**
 | Archivo | Rol |

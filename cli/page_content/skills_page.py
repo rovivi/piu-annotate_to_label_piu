@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -63,7 +64,7 @@ renamed_skill_cols = {skill_col: skill_col.replace('__', '').replace(' ', '_')
 def make_skills_dataframe():
     """ Create dataframe: each row is a stepchart, columns are skill frequencies
     """
-    dataset_fn = '/home/maxwshen/piu-annotate/artifacts/skills/stepchart-skills.csv'
+    dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/skills/stepchart-skills.csv'
     rerun_all = args.setdefault('rerun', False)
     if not rerun_all:
         if os.path.exists(dataset_fn):
@@ -169,7 +170,7 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/main/lgbm-120524/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/main/lgbm-120524/',
     )
     args.parse_args(parser)
     main()

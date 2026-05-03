@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -69,7 +70,7 @@ def annotate_segment_similarity():
         dd['Note Count'].append(count)
         dd['Pack'].append(cs.metadata['pack'])
 
-    out_fn = '/home/maxwshen/piu-annotate/artifacts/notecounts/notecounts.csv'
+    out_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/notecounts/notecounts.csv'
     df = pd.DataFrame(dd)
     df.to_csv(out_fn)
     logger.info(f'Wrote to {out_fn}')
@@ -89,7 +90,7 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/main/lgbm-120524/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/main/lgbm-120524/',
     )
     args.parse_args(parser)
     main()

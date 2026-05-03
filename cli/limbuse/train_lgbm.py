@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Featurize
 """
@@ -49,7 +50,7 @@ def create_dataset(
     hashid = md5_hash(( tuple(sorted(csvs)), dataset_name, use_limb_features, singles_doubles ))
 
     # try to load dataset
-    dataset_storage = args.setdefault('dataset_storage', '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/cli/temp/dataset-storage/')
+    dataset_storage = args.setdefault('dataset_storage', '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/cli/temp/dataset-storage/')
     storage_file = os.path.join(dataset_storage, f'{hashid}.pkl.gz')
     if os.path.isfile(storage_file) and not args.setdefault('rebuild_datasets', False):
         logger.info(f'Loading from {storage_file} ...')
@@ -141,7 +142,7 @@ def train_categorical_model(
 
 
 def save_model(bst: Booster, name):
-    out_dir = args.setdefault('out_dir', '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss')
+    out_dir = args.setdefault('out_dir', '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss')
     singles_doubles = args.setdefault('singles_or_doubles', 'singles')
     out_fn = os.path.join(out_dir, f'{singles_doubles}-{name}.txt')
 
@@ -194,8 +195,8 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--manual_chart_struct_folder',
-        default = '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/piucenter-manual-090624/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/piucenter-manual-090624/',
     )
     parser.add_argument(
         '--singles_or_doubles', 

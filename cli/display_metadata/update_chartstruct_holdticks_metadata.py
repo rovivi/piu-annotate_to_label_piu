@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -22,8 +23,8 @@ def main():
     logger.info(f'Found {len(chartstruct_files)} ChartStruct CSVs ...')
 
     # load __cs_to_manual_json.yaml
-    # assumes that cs_folder is like /home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/
-    # so that parent_dir is like /home/maxwshen/piu-annotate/artifacts/chartstructs/092424/,
+    # assumes that cs_folder is like /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/
+    # so that parent_dir is like /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/,
     # which holds all chartstruct CSVs, and contains __cs_to_manual_json.yaml
     parent_dir = Path(cs_folder).parent
     cs_to_manual_fn = os.path.join(parent_dir, '__cs_to_manual_json.yaml')
@@ -105,8 +106,8 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424',
     )
     args.parse_args(parser)
     main()

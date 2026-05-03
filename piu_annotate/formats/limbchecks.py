@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pandas as pd
 from tqdm import tqdm
 from loguru import logger

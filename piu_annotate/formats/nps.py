@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Logic for computing effective NPS
 """
@@ -214,7 +215,7 @@ def annotate_enps(cs: ChartStruct) -> tuple[list[float], list[str]]:
     annot_times = []
     for i in range(0, len(edp_times) - nn):
         tss = time_since[i : i + nn]
-        all_time_since_same = all(math.isclose(x, y) for x, y in itertools.pairwise(tss))
+        all_time_since_same = all(math.isclose(x, y) for x, y in zip(tss, itertools.islice(tss, 1, None)))
         if all_time_since_same:
 
             bpm, notetype = calc_bpm(time_since[i], display_bpm)
@@ -250,6 +251,6 @@ def annotate_enps(cs: ChartStruct) -> tuple[list[float], list[str]]:
 
 if __name__ == '__main__':
     shortname = 'Ultimatum_-_Cosmograph_S21_ARCADE'
-    cs = ChartStruct.from_file('/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/' + shortname + '.csv')
+    cs = ChartStruct.from_file('/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/' + shortname + '.csv')
     annots = annotate_enps(cs)
     import code; code.interact(local=dict(globals(), **locals()))

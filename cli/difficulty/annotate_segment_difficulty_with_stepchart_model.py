@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -24,7 +25,7 @@ def build_segment_dataset():
     """ Featurizes segments, storing into pkl.
         If pkl already exists, loads from file.
     """
-    dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/feature-store-stepchart.pkl'
+    dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/feature-store-stepchart.pkl'
     if not args.setdefault('rerun', False):
         if os.path.exists(dataset_fn):
             with open(dataset_fn, 'rb') as f:
@@ -131,23 +132,23 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424',
     )
     parser.add_argument(
         '--full_stepchart_difficulty_model_singles',
-        default = '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts/full-stepchart-model-singles.txt'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts/full-stepchart-model-singles.txt'
     )
     parser.add_argument(
         '--full_stepchart_difficulty_model_doubles',
-        default = '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts/full-stepchart-model-doubles.txt'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts/full-stepchart-model-doubles.txt'
     )
     parser.add_argument(
         '--csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/Conflict_-_Siromaru_+_Cranky_D25_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/Nyarlathotep_-_nato_S21_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/BOOOM!!_-_RiraN_D22_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/Conflict_-_Siromaru_+_Cranky_D25_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/Nyarlathotep_-_nato_S21_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/BOOOM!!_-_RiraN_D22_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
     )
     args.parse_args(parser)
     main()

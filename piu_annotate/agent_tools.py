@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Agente Tools para piu-annotate
 
 Proporciona utilities para que agentes IA interactuen con el proyecto.

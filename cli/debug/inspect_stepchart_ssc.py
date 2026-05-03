@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -38,7 +39,7 @@ def main():
 
     # write
     if message != 'success':
-        out_dir = '/home/maxwshen/piu-annotate/output/problematic-df'
+        out_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/output/problematic-df'
         out_file = os.path.join(out_dir, stepchart.shortname() + '.csv')
         cs_df.to_csv(out_file)
         logger.info(f'Wrote problematic df to {out_file}')

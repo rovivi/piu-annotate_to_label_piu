@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -44,9 +45,9 @@ def build_segment_feature_store(feature_type: str) -> dict:
     assert feature_type in ['segment', 'stepchart']
 
     if feature_type == 'segment':
-        dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/feature-store-segment.pkl'
+        dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/feature-store-segment.pkl'
     else:
-        dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/feature-store-stepchart.pkl'
+        dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/feature-store-stepchart.pkl'
 
     rerun_all = args.setdefault('rerun_all', False)
     rerun_ftstore = args.setdefault(f'rerun_ftstore_{feature_type}', False)
@@ -102,7 +103,7 @@ def build_dataset(ft_store_segment: dict, ft_store_stepchart: dict) -> dict:
         
         ys are from stepchart difficulty predictor model to obtain segment difficulties, which will be used to train a segment difficulty model.
     """
-    dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/dataset.pkl'
+    dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/dataset.pkl'
     rerun_all = args.setdefault('rerun_all', False)
     rerun_ys = args.setdefault('rerun_ys', False)
     if not rerun_all and not rerun_ys:
@@ -234,7 +235,7 @@ def train_lgbm(
     logger.info(f'val set: {linregress(test_pred, test_y)}')
 
     # import pickle
-    model_dir = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/'
+    model_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/'
     model_fn = os.path.join(model_dir, f'lgbm-{singles_or_doubles}.txt')
     model.save_model(model_fn)
     logger.info(f'Saved model to {model_fn}')
@@ -260,8 +261,8 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-112624/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-112624/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424',
     )
     args.parse_args(parser)
     main()

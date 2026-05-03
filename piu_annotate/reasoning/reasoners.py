@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Pattern reasoning
 """
@@ -41,7 +42,7 @@ class LimbReusePattern:
         """
         self.validate()
         limbs = [downpress_limbs[i] for i in self.downpress_idxs]
-        pairs = itertools.pairwise(limbs)
+        pairs = zip(limbs, itertools.islice(limbs, 1, None))
         for i, ((la, lb), limbuse) in enumerate(zip(pairs, self.limb_pattern)):
             if any([
                 limbuse == LimbUse.alternate and la == lb,

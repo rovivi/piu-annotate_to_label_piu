@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Check coverage of charts list
 """
@@ -167,7 +168,7 @@ def main():
     logger.info(f'Found {len(matched_sscs)} StepchartSSCs matching charts list')
 
     # save log
-    log_file = '/home/maxwshen/piu-annotate/output/logs/match-ae-to-ssc.yaml'
+    log_file = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/output/logs/match-ae-to-ssc.yaml'
     with open(log_file, 'w') as f:
         yaml.dump(dict(msg_to_charts), f)
     logger.info(f'Saved log to {log_file}')
@@ -231,7 +232,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--charts_list_json', 
-        default = '/home/maxwshen/piu-annotate/artifacts/accessible-stepcharts/122824-arroweclipse.json'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/accessible-stepcharts/122824-arroweclipse.json'
     )
     parser.add_argument(
         '--simfiles_folder', 
@@ -239,7 +240,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--output_chartstruct_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/'
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/'
     )
     args.parse_args(parser)
     main()

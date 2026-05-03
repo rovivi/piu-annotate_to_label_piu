@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Code for converting .ssc into chartstruct format, parsing BPM change
     info to annotate each `line` with time and beat

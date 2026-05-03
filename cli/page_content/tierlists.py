@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -21,7 +22,7 @@ from piu_annotate.formats.nps import calc_bpm
 
 
 def make_data_struct():
-    dataset_fn = '/home/maxwshen/piu-annotate/artifacts/difficulty/full-stepcharts/tierlist-struct.pkl'
+    dataset_fn = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/full-stepcharts/tierlist-struct.pkl'
     rerun_all = args.setdefault('rerun', False)
     if not rerun_all:
         if os.path.exists(dataset_fn):
@@ -134,7 +135,7 @@ def main():
 
         # place charts into groups
         groups = dict()
-        pairs = list(itertools.pairwise(edp_percentiles))
+        pairs = list(zip(edp_percentiles, itertools.islice(edp_percentiles, 1, None)))
         for lower, upper in pairs[::-1]:
             selector = (edps >= lower) & (edps < upper)
             charts_in_group = charts[selector]
@@ -175,7 +176,7 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-120524/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-120524/',
     )
     args.parse_args(parser)
     main()

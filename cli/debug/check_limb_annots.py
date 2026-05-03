@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Featurize
 """
@@ -37,7 +38,7 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-092124',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-092124',
     )
     args.parse_args(parser)
     main()

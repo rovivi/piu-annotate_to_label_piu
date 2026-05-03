@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pickle
 from jsplot import ArrowArt, HoldArt
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -70,15 +71,15 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv', 
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/rayden-072924-arroweclipse-072824/Over_The_Horizon_-_Yamajet_S11_ARCADE.csv',
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/main/Betrayer_-act.2-_-_msgoon_D15_ARCADE.csv'
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/rayden-072924-arroweclipse-072824/Over_The_Horizon_-_Yamajet_S11_ARCADE.csv',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/main/Betrayer_-act.2-_-_msgoon_D15_ARCADE.csv'
     )
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/main/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/main/',
     )
     args.parse_args(
         parser, 
-        '/home/maxwshen/piu-annotate/artifacts/models/120524/model-config.yaml'
+        '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/120524/model-config.yaml'
     )
     main()

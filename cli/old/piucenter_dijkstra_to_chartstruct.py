@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Convert piucenter dijkstra files to chartstruct
 """
@@ -11,7 +12,7 @@ from pathlib import Path
 from piu_annotate.formats.piucenterdf import PiuCenterDataFrame
 from piu_annotate.formats.chart import ChartStruct
 
-OUT_DIR = '/home/maxwshen/piu-annotate/output/chartstructs-piucenter-dijkstra-090124/'
+OUT_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/output/chartstructs-piucenter-dijkstra-090124/'
 Path(OUT_DIR).mkdir(parents = True, exist_ok = True)
 
 
@@ -44,7 +45,7 @@ def main():
         # run all
         logger.info(f'Running all ...')
 
-        inp_dir = '/home/maxwshen/piu-annotate/data/d_annotate/'
+        inp_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/data/d_annotate/'
         fns = [fn for fn in os.listdir(inp_dir) if '_features.csv' not in fn]
         for fn in tqdm(fns):
             out_file = os.path.join(OUT_DIR, fn)
@@ -59,7 +60,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--file', 
-        # default = '/home/maxwshen/piu-annotate/data/d_annotate/video_out_c_-_Vospi_S22_arcade.csv'
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/data/d_annotate/video_out_c_-_Vospi_S22_arcade.csv'
     )
     args.parse_args(parser)
     main()

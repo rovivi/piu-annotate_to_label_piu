@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import functools
 from collections import UserDict
@@ -97,13 +98,15 @@ class StepchartSSC(UserDict):
     def to_file(self, filename: str) -> None:
         """ Writes to file """
         Path(os.path.dirname(filename)).mkdir(parents = True, exist_ok = True)
-        string_repr = '\n'.join(f'#{k}:{v.replace("\n\n", "\n")};' for k, v in self.data.items())
+        nl2 = "\n\n"
+        nl1 = "\n"
+        string_repr = '\n'.join(f'#{k}:{v.replace(nl2, nl1)};' for k, v in self.data.items())
         with open(filename, 'w') as f:
             f.write(string_repr)
         return
 
     def __repr__(self) -> str:
-        return '\n'.join(f'{k}: {v.split("\n")[0]}' for k, v in self.data.items())
+        return '\n'.join(f'{k}: {v.split(chr(10))[0]}' for k, v in self.data.items())
 
     def __eq__(self, other) -> bool:
         return hash(self) == hash(other)

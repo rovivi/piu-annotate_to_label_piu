@@ -1,3 +1,4 @@
+from __future__ import annotations
 from numpy.typing import NDArray
 import math
 from hackerargs import args

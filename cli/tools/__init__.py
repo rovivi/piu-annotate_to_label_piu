@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Agent Utilities for piu-annotate
 

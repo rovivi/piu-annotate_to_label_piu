@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -8,7 +9,7 @@ from piu_annotate.formats.piucenterdf import PiuCenterDataFrame
 from piu_annotate.formats.chart import ChartStruct
 from piu_annotate.formats.jsplot import ChartJsStruct
 
-OUT_DIR = '/home/maxwshen/piu-annotate/output/chart-json-piucenter-annot-070824/'
+OUT_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/output/chart-json-piucenter-annot-070824/'
 
 
 def pcdf_to_json(inp_file: str, out_file: str, verbose: bool = False):
@@ -38,7 +39,7 @@ def main():
         # run all
         logger.info(f'Running all ...')
 
-        inp_dir = '/home/maxwshen/piu-annotate/data/d_annotate/'
+        inp_dir = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/data/d_annotate/'
         fns = [fn for fn in os.listdir(inp_dir) if '_features.csv' not in fn]
         for fn in tqdm(fns):
             out_file = os.path.join(
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--file', 
-        # default = '/home/maxwshen/piu-annotate/jupyter/Conflict - Siromaru + Cranky D24 arcade.csv'
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/jupyter/Conflict - Siromaru + Cranky D24 arcade.csv'
     )
     args.parse_args(parser)
     main()

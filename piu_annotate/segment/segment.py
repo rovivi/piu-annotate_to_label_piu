@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     ChartStruct segmentation and description
 """
@@ -145,7 +146,7 @@ class Segmenter:
 
         sections = [0] + changepoints[:-1] + [len(self.cs.df) - 1]
         segment_costs = [self.segment_cost(s, e) for s, e
-                         in itertools.pairwise(sections)]
+                         in zip(sections, itertools.islice(sections, 1, None))]
         return -1 * (num_cost + 0.5 * sum(segment_costs))
 
     """
@@ -165,7 +166,7 @@ class Segmenter:
         # final element from ruptures is = len(df), so subtract 1 to index last element
         best_segments[-1] -= 1
         sections = [Section(i, j, self.times[i], self.times[j])
-                    for i, j in itertools.pairwise(best_segments)]
+                    for i, j in zip(best_segments, itertools.islice(best_segments, 1, None))]
 
         # try splitting long sections, repeat until convergence
         if self.cs.metadata['SONGTYPE'] != 'FULLSONG':

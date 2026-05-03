@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Actor
 """
@@ -374,7 +375,7 @@ class Tactician:
         
         row_idx_to_prev_pc = self.fcs.row_idx_to_prevs
         n_edits = 0
-        for row_idx, (line1, line2) in enumerate(itertools.pairwise(lines)):
+        for row_idx, (line1, line2) in enumerate(zip(lines, itertools.islice(lines, 1, None))):
             if all([
                 notelines.has_one_3(line1),
                 notelines.num_downpress(line2) == 1,

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -85,7 +86,7 @@ def main():
         dd['sord'].append(cs.singles_or_doubles())
 
     df = pd.DataFrame(dd)
-    df.to_csv('/home/maxwshen/piu-annotate/artifacts/analysis/runs.csv')
+    df.to_csv('/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/analysis/runs.csv')
     return
 
 
@@ -94,7 +95,7 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/092424/lgbm-110424/',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/092424/lgbm-110424/',
     )
     args.parse_args(parser)
     main()

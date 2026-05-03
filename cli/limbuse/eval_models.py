@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -12,17 +13,31 @@ from piu_annotate.ml import featurizers
 from piu_annotate.ml.models import ModelSuite
 from piu_annotate.ml.predictor import predict
 
+MODEL_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss'
+
+def setup_model_args(model_dir: str) -> None:
+    args['model'] = 'lightgbm'
+    args['model.dir'] = model_dir
+    for sd in ('singles', 'doubles'):
+        args[f'model.arrows_to_limb-{sd}'] = f'{sd}-arrows_to_limb.txt'
+        args[f'model.arrowlimbs_to_limb-{sd}'] = f'{sd}-arrowlimbs_to_limb.txt'
+        args[f'model.arrows_to_matchnext-{sd}'] = f'{sd}-arrows_to_matchnext.txt'
+        args[f'model.arrows_to_matchprev-{sd}'] = f'{sd}-arrows_to_matchprev.txt'
 
 def accuracy(fcs: featurizers.ChartStructFeaturizer, pred_limbs: NDArray):
     eval_d = fcs.evaluate(pred_limbs, verbose = False)
     return eval_d['accuracy-float']
 
-
 def main():
-    if not args['run_folder']:
-        csv = args['chart_struct_csv']
+    setup_model_args(MODEL_DIR)
+    
+    if not args.get('run_folder'):
+        csv = args.get('chart_struct_csv')
+        if not csv:
+            logger.error('Must provide --chart_struct_csv if not using --run_folder')
+            return
         logger.info(f'Using {csv=}')
-        cs: ChartStruct = ChartStruct.from_file(args['chart_struct_csv'])
+        cs: ChartStruct = ChartStruct.from_file(csv)
         singles_or_doubles = cs.singles_or_doubles()
         model_suite = ModelSuite(singles_or_doubles)
 
@@ -38,12 +53,11 @@ def main():
             cs.df['__pred limb final'] != cs.df['Limb annotation']
         ).astype(int)
 
-        basename = os.path.basename(args['chart_struct_csv'])
+        basename = os.path.basename(csv)
+        os.makedirs('temp', exist_ok=True)
         out_fn = f'temp/{basename}'
         cs.to_csv(out_fn)
         logger.info(f'Saved to {out_fn}')
-        import code; code.interact(local=dict(globals(), **locals()))
-
     else:
         csv_folder = args['manual_chart_struct_folder']
         singles_or_doubles = args['singles_or_doubles']
@@ -52,63 +66,40 @@ def main():
 
         # crawl all subdirs for csvs
         csvs = []
-        dirpaths = set()
         for dirpath, _, files in os.walk(csv_folder):
             for file in files:
                 if file.endswith('.csv') and 'exclude' not in dirpath:
                     csvs.append(os.path.join(dirpath, file))
-                    dirpaths.add(dirpath)
-        logger.info(f'Found {len(csvs)} csvs in {len(dirpaths)} directories ...')
-        # csvs = [os.path.join(csv_folder, fn) for fn in os.listdir(csv_folder)
-        #         if fn.endswith('.csv')]
+        
+        logger.info(f'Found {len(csvs)} csvs ...')
         
         dd = defaultdict(list)
         for csv in tqdm(csvs):
-            cs = ChartStruct.from_file(csv)
-            if cs.singles_or_doubles() != singles_or_doubles:
-                continue
-            # logger.info(csv)
-            cs, fcs, pred_limbs = predict(cs, model_suite)
-            
-            dd['File'].append(os.path.basename(csv))
-            dd['Accuracy'].append(accuracy(fcs, pred_limbs))
+            try:
+                cs = ChartStruct.from_file(csv)
+                if cs.singles_or_doubles() != singles_or_doubles:
+                    continue
+                cs, fcs, pred_limbs = predict(cs, model_suite)
+                dd['File'].append(os.path.basename(csv))
+                dd['Accuracy'].append(accuracy(fcs, pred_limbs))
+            except Exception as e:
+                logger.warning(f'Error processing {csv}: {e}')
 
-        stats_df = pd.DataFrame(dd)
-        stats_df.to_csv(f'temp/stats-{singles_or_doubles}.csv')
-
-        logger.info(stats_df['Accuracy'].describe())
+        if dd['Accuracy']:
+            stats_df = pd.DataFrame(dd)
+            os.makedirs('temp', exist_ok=True)
+            stats_df.to_csv(f'temp/stats-{singles_or_doubles}.csv')
+            logger.info(stats_df['Accuracy'].describe())
+        else:
+            logger.warning('No compatible charts found.')
 
     logger.success('Done.')
-    return
-
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description = """
-        Evaluates models on chart structs with existing limb annotations
-    """)
-    parser.add_argument(
-        '--chart_struct_csv', 
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/091924/Indestructible_-_Matduke_D22_ARCADE.csv'
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/092424/Feel_My_Happiness_-_3R2_D21_ARCADE.csv',
-        default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/092124/Nyarlathotep_-_SHORT_CUT_-_-_Nato_D24_SHORTCUT.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/piucenter-manual-090624/Rising_Star_-_M2U_S17_arcade.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/piucenter-manual-090624/Conflict_-_Siromaru___Cranky_S11_arcade.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/piucenter-manual-090624/Headless_Chicken_-_r300k_S21_arcade.csv'
-    )
-    parser.add_argument(
-        '--manual_chart_struct_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/',
-    )
-    parser.add_argument(
-        '--singles_or_doubles', 
-        default = 'singles',
-    )
-    parser.add_argument(
-        '--run_folder', 
-        default = False,
-    )
-    args.parse_args(
-        parser, 
-        '/home/maxwshen/piu-annotate/artifacts/models/101524/model-config.yaml'
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--chart_struct_csv', default=None)
+    parser.add_argument('--manual_chart_struct_folder', default='artifacts/manual-chartstructs/visss-120524/')
+    parser.add_argument('--singles_or_doubles', default='singles')
+    parser.add_argument('--run_folder', type=bool, default=False)
+    args.parse_args(parser)
     main()

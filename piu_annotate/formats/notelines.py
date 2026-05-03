@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
     Logic re note lines from .ssc file
 """

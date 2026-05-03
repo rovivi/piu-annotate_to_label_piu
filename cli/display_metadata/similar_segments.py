@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import os
 from hackerargs import args
@@ -43,7 +44,7 @@ def guess_sord_from_shortname(shortname: str) -> str:
 class SegmentSimilarity:
     def __init__(
         self,
-        dataset_fn: str = '/home/maxwshen/piu-annotate/artifacts/difficulty/segments/feature-store-segment.pkl'
+        dataset_fn: str = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/difficulty/segments/feature-store-segment.pkl'
     ):
         assert os.path.exists(dataset_fn)
         self.dataset_fn = dataset_fn
@@ -224,15 +225,15 @@ if __name__ == '__main__':
     """)
     parser.add_argument(
         '--chart_struct_csv_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-120524/',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524',
+        default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-120524/',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524',
     )
     parser.add_argument(
         '--csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-112624/Conflict_-_Siromaru_+_Cranky_D25_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-112624/Nyarlathotep_-_nato_S21_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-112624/BOOOM!!_-_RiraN_D22_ARCADE.csv',
-        # default = '/home/maxwshen/piu-annotate/artifacts/chartstructs/120524/lgbm-112624/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-112624/Conflict_-_Siromaru_+_Cranky_D25_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-112624/Nyarlathotep_-_nato_S21_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-112624/BOOOM!!_-_RiraN_D22_ARCADE.csv',
+        # default = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/chartstructs/120524/lgbm-112624/My_Dreams_-_Banya_Production_D22_ARCADE.csv',
     )
     args.parse_args(parser)
     main()

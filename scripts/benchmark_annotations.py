@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 benchmark_annotations.py
 
@@ -18,8 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from collections import defaultdict
 
 
-VIS_DIR = '/home/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
-PROC_DIR = '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/processed_db'
+VIS_DIR = '/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
+PROC_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/processed_db'
 
 try:
     from piu_annotate.formats import notelines as _notelines
