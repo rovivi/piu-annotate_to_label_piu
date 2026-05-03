@@ -49,7 +49,7 @@ def create_dataset(
     hashid = md5_hash(( tuple(sorted(csvs)), dataset_name, use_limb_features, singles_doubles ))
 
     # try to load dataset
-    dataset_storage = args.setdefault('dataset_storage', '/home/maxwshen/piu-annotate/cli/temp/dataset-storage/')
+    dataset_storage = args.setdefault('dataset_storage', '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/cli/temp/dataset-storage/')
     storage_file = os.path.join(dataset_storage, f'{hashid}.pkl.gz')
     if os.path.isfile(storage_file) and not args.setdefault('rebuild_datasets', False):
         logger.info(f'Loading from {storage_file} ...')
@@ -71,12 +71,16 @@ def create_dataset(
     all_points, all_labels = [], []
     n_csvs = 0
     for csv in tqdm(csv_sord):
-        cs = ChartStruct.from_file(csv)
-        if cs.singles_or_doubles() != singles_doubles:
-            continue
+        try:
+            cs = ChartStruct.from_file(csv)
+            if cs.singles_or_doubles() != singles_doubles:
+                continue
 
-        fcs = featurizers.ChartStructFeaturizer(cs)
-        labels = get_label_func(fcs)
+            fcs = featurizers.ChartStructFeaturizer(cs)
+            labels = get_label_func(fcs)
+        except Exception as e:
+            logger.warning(f'Skipping {csv} due to error: {e}')
+            continue
 
         if use_limb_features:
             points = fcs.featurize_arrowlimbs_with_context(labels)
@@ -137,7 +141,7 @@ def train_categorical_model(
 
 
 def save_model(bst: Booster, name):
-    out_dir = args.setdefault('out_dir', '/home/maxwshen/piu-annotate/artifacts/models/temp')
+    out_dir = args.setdefault('out_dir', '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss')
     singles_doubles = args.setdefault('singles_or_doubles', 'singles')
     out_fn = os.path.join(out_dir, f'{singles_doubles}-{name}.txt')
 
@@ -189,8 +193,8 @@ if __name__ == '__main__':
         Train LightGBM model suite on chart struct with manual limb annotations.
     """)
     parser.add_argument(
-        '--manual_chart_struct_folder', 
-        default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/',
+        '--manual_chart_struct_folder',
+        default = '/home/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524/',
         # default = '/home/maxwshen/piu-annotate/artifacts/manual-chartstructs/piucenter-manual-090624/',
     )
     parser.add_argument(

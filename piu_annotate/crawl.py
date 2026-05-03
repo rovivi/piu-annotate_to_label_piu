@@ -26,7 +26,7 @@ def crawl_sscs(
         if pack in skip_packs:
             continue
 
-        if level == 1:
+        if level in (1, 2):
             for file in files:
                 if file.lower().endswith('.ssc'):
                     ssc_files.append(os.path.join(dirpath, file))
