@@ -95,7 +95,7 @@ def stepchart_ssc_to_chartstruct(
         b2l = BeatToLines(stepchart)
     except Exception as e:
         error_message = str(e)
-        return None, f'Error making BeatToLines: {error_message}'
+        return None, [], f'Error making BeatToLines: {error_message}'
 
     warps = BeatToValueDict.from_string(stepchart.get('WARPS', ''))
     beat_to_bpm = BeatToValueDict.from_string(stepchart.get('BPMS', ''))

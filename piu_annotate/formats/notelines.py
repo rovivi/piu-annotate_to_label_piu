@@ -258,6 +258,129 @@ def multihit_to_valid_feet(arrow_positions: list[int]) -> list[tuple[int]]:
     return []
 
 
+# Patrones de triples/quads donde el panel CENTRAL admite cualquier pie.
+# Singles: panel central = 2. Doubles P1: panel 2. Doubles P2: panel 7.
+# Las claves son los 5-bit pad patterns (0/1 sobre cada panel del pad).
+_AMBIGUOUS_CENTER_PATTERNS_SINGLES = frozenset({
+    '11100', '01110', '00111',
+    '10101', '10110', '01011',
+})
+
+
+def _line_has_ambiguous_center(line5: str) -> bool:
+    return line5 in _AMBIGUOUS_CENTER_PATTERNS_SINGLES
+
+
+def _ambiguous_center_positions(downpress_line: str) -> set[int]:
+    """ For a 0/1 mask of downpresses (length 5 singles or 10 doubles),
+        return the set of arrow positions whose CENTER panel is ambiguous
+        per the restricted patterns:
+            11100, 01110, 00111, 10101, 10110, 01011
+        Singles: center = panel 2.
+        Doubles: applied independently to each pad — pad1 (0..4, center=2)
+                 and pad2 (5..9, center=7).
+    """
+    n = len(downpress_line)
+    if n == 5:
+        if _line_has_ambiguous_center(downpress_line):
+            return {2}
+        return set()
+    if n == 10:
+        out: set[int] = set()
+        if _line_has_ambiguous_center(downpress_line[:5]):
+            out.add(2)
+        if _line_has_ambiguous_center(downpress_line[5:]):
+            out.add(7)
+        return out
+    return set()
+
+
+def multihit_ambiguous_panels(arrow_positions: list[int]) -> set[int]:
+    """ Restricted ambiguous-center detection for triples/quads.
+
+        Returns the set of CENTER panel positions (singles: 2; doubles: 2,7)
+        that admit either-foot annotation under one of the listed patterns:
+            11100, 01110, 00111, 10101, 10110, 01011
+        applied to each pad independently. The center is the only panel ever
+        flagged; the side panels keep their original l/r per body orientation.
+
+        This is a conservative rule: outside of these patterns we never
+        relabel.
+    """
+    if not arrow_positions:
+        return set()
+    arrow_positions = sorted(arrow_positions)
+    n_panels = 10 if max(arrow_positions) >= 5 else 5
+    mask = ['0'] * n_panels
+    for pos in arrow_positions:
+        mask[pos] = '1'
+    return _ambiguous_center_positions(''.join(mask))
+
+
+def relabel_with_ambiguous_e(
+    line_with_active_holds: str,
+    limb_annot: str,
+    prev_line_with_active_holds: str | None = None,
+    prev_limb_annot: str | None = None,
+) -> str:
+    """ Relabel only the CENTER panel of a triple/quad that matches one of
+        the ambiguous patterns (11100, 01110, 00111, 10101, 10110, 01011 on
+        a pad), and only if either:
+          (a) the previous line also used the same center panel (jack on
+              the center: the centro repeats), OR
+          (b) the previous line had a downpress on a *different* panel that
+              was annotated as 'l' or 'r' (so the body had a clear prior
+              orientation that frees the centro to either foot now).
+
+        If neither condition is met, the original annotation is preserved.
+
+        This implements: "el centro puede ir con cualquier pie sobretodo si
+        se repite o si previamente hay uno de los 2 pies en la posición
+        previa".
+    """
+    if not limb_annot:
+        return limb_annot
+
+    line = line_with_active_holds.replace('`', '')
+    dp_positions = [i for i, s in enumerate(line) if s in '12']
+    if len(dp_positions) < 3:
+        return limb_annot
+
+    ambiguous = multihit_ambiguous_panels(dp_positions)
+    if not ambiguous:
+        return limb_annot
+
+    # Evaluate the (a)/(b) preconditions vs prev line.
+    has_prev_orientation = False
+    repeats_center = False
+    if prev_line_with_active_holds is not None and prev_limb_annot:
+        prev_line = prev_line_with_active_holds.replace('`', '')
+        prev_annot_idx = 0
+        for pos, sym in enumerate(prev_line):
+            if sym in '1234':
+                if sym in '12':
+                    annot = prev_limb_annot[prev_annot_idx] if prev_annot_idx < len(prev_limb_annot) else ''
+                    if pos in ambiguous and annot in ('l', 'r', 'e'):
+                        repeats_center = True
+                    elif annot in ('l', 'r'):
+                        has_prev_orientation = True
+                prev_annot_idx += 1
+
+    if not (has_prev_orientation or repeats_center):
+        return limb_annot
+
+    # Apply 'e' to ambiguous center positions only.
+    new_annot = list(limb_annot)
+    annot_idx = 0
+    for pos, sym in enumerate(line):
+        if sym in '1234':
+            if sym in '12' and pos in ambiguous:
+                if new_annot[annot_idx] in ('l', 'r'):
+                    new_annot[annot_idx] = 'e'
+            annot_idx += 1
+    return ''.join(new_annot)
+
+
 @functools.lru_cache
 def line_is_bracketable(line: str) -> bool:
     """ Returns whether `line` is bracketable, counting all downpresses (1-4).

@@ -3,6 +3,7 @@ import json
 import os
 import difflib
 import traceback
+import numpy as np
 from collections import defaultdict
 from loguru import logger
 from tqdm import tqdm
@@ -18,6 +19,17 @@ from piu_annotate.reasoning.reasoners import PatternReasoner
 from piu_annotate.formats import notelines
 from piu_annotate.ml.models import ModelSuite
 from piu_annotate.ml.predictor import predict as ml_predict
+
+
+def _json_default(obj):
+    """Convert numpy scalar types for json.dump."""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f'Object of type {type(obj)} is not JSON serializable')
 
 
 def _natural_position_score(arrow_positions: list[int], combo: tuple[int], is_singles: bool) -> int:
@@ -393,11 +405,12 @@ def main():
                 }
 
                 with open(out_path, 'w', encoding='utf-8') as f:
-                    json.dump(wrapper, f)
+                    json.dump(wrapper, f, default=_json_default)
 
                 processed_count += 1
             except Exception as e:
                 logger.warning(f"Skipping {song['song_name']} {mode}{level}: {e}")
+                logger.debug(traceback.format_exc())
 
     logger.success(f"Matched {match_count}/{len(master_db)} songs.")
     logger.success(f"Processed and exported {processed_count} charts.")
