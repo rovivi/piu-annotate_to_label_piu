@@ -16,87 +16,24 @@ import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
+from mlx.utils import tree_flatten
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from piu_annotate.formats.chart import ChartStruct
 from piu_annotate.ml.featurizers import ChartStructFeaturizer
 from piu_annotate.formats.mirror import mirror_chartstruct
-
+from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
 
 MAX_SEQ_LEN = 1024
 CHUNK_OVERLAP = 128
 
-
 SINGLES_INPUT_DIM = 18
-DOUBLES_INPUT_DIM = 21
+DOUBLES_INPUT_DIM = 23
 
-
-def _flatten_params(d: dict, parent_key: str = '') -> dict[str, np.ndarray]:
-    items = {}
-    for k, v in d.items():
-        new_key = f'{parent_key}.{k}' if parent_key else k
-        if isinstance(v, list):
-            for i, elem in enumerate(v):
-                items.update(_flatten_params(elem, f'{new_key}.{i}'))
-        elif isinstance(v, dict):
-            items.update(_flatten_params(v, new_key))
-        else:
-            items[new_key] = np.array(v)
-    return items
-
-
-def sinusoidal_pos_encoding(seq_len: int, d_model: int) -> mx.array:
-    positions = mx.arange(seq_len).reshape(-1, 1)
-    div_term = mx.exp(mx.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-    pe = mx.concatenate([mx.sin(positions * div_term), mx.cos(positions * div_term)], axis=1)
-    if d_model % 2 == 1:
-        pe = mx.concatenate([pe, mx.zeros((seq_len, 1))], axis=1)
-    return pe
-
-
-class LimbSequenceTransformer(nn.Module):
-    def __init__(
-        self,
-        input_dim: int,
-        d_model: int = 128,
-        n_heads: int = 8,
-        n_layers: int = 4,
-        ffn_dim: int = 512,
-        max_len: int = 1024,
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.input_proj = nn.Linear(input_dim, d_model)
-        self.pos_enc = sinusoidal_pos_encoding(max_len, d_model)
-        self.encoder = nn.TransformerEncoder(
-            num_layers=n_layers,
-            dims=d_model,
-            num_heads=n_heads,
-            mlp_dims=ffn_dim,
-            dropout=dropout,
-            checkpoint=True,
-        )
-        self.dropout = nn.Dropout(dropout)
-        self.out_head = nn.Linear(d_model, 3)
-        self.d_model = d_model
-
-    def __call__(self, x: mx.array, padding_mask: mx.array) -> mx.array:
-        B, L, _ = x.shape
-        h = self.input_proj(x)
-        h = h + self.pos_enc[:L][None, :, :]
-        h = self.dropout(h)
-        if mx.sum(padding_mask) > 0:
-            attn_mask = mx.where(padding_mask[:, None, :, None], -1e9, 0.0)
-        else:
-            attn_mask = None
-        h = self.encoder(h, mask=attn_mask)
-        return self.out_head(h)
-
-
-def _build_padding_mask(padding_mask: mx.array) -> mx.array:
-    return mx.where(padding_mask[:, None, :], -1e9, 0.0)
-
+def save_model(path: str, model: nn.Module) -> None:
+    flat = dict(tree_flatten(model.parameters()))
+    mx.save_safetensors(path, flat)
 
 def chartstruct_to_sequence(cs: ChartStruct) -> tuple[np.ndarray, np.ndarray]:
     ft = ChartStructFeaturizer(cs)
@@ -105,7 +42,6 @@ def chartstruct_to_sequence(cs: ChartStruct) -> tuple[np.ndarray, np.ndarray]:
     x = np.concatenate([x_raw, cmf], axis=1)
     labels_raw = ft.get_labels_from_limb_col('Limb annotation')
     return x.astype(np.float32), labels_raw.astype(np.float32)
-
 
 def make_chunks(x, y, max_len=MAX_SEQ_LEN, overlap=CHUNK_OVERLAP):
     if len(x) <= max_len:
@@ -118,47 +54,30 @@ def make_chunks(x, y, max_len=MAX_SEQ_LEN, overlap=CHUNK_OVERLAP):
         chunks.append((x[-max_len:], y[-max_len:]))
     return chunks
 
-
-def load_all_chunks(folder: str, sd: str, mirror_prob: float, seed: int, limit: int | None = None):
-    files = list(Path(folder).glob('*.csv'))
-    if limit:
-        files = files[:limit]
-    rng = np.random.default_rng(seed)
+def load_chunks_from_files(files: list[Path], mirror_prob: float, rng: np.random.Generator):
     all_chunks = []
-    counts = {'total': 0, 'mirrored': 0}
-    for f in tqdm(files, desc=f'Loading {sd}'):
-        try:
-            cs = ChartStruct.from_file(str(f))
-            if cs.singles_or_doubles() != sd:
-                continue
-            x, y = chartstruct_to_sequence(cs)
-            chunks = make_chunks(x, y)
-            for cx, cy in chunks:
-                was_mirrored = False
-                if mirror_prob > 0 and rng.random() < mirror_prob:
-                    mirrored_cs = mirror_chartstruct(cs)
-                    mx2, my = chartstruct_to_sequence(mirrored_cs)
-                    min_len = min(len(cx), len(mx2))
-                    cx[:min_len] = mx2[:min_len]
-                    cy[:min_len] = my[:min_len]
-                    was_mirrored = True
-                counts['total'] += 1
-                if was_mirrored:
-                    counts['mirrored'] += 1
-                all_chunks.append((cx, cy))
-        except Exception as e:
-            logger.warning(f'Error loading {f}: {e}')
-    logger.info(f"Loaded {counts['total']} chunks, {counts['mirrored']} mirrored ({counts['mirrored']/max(counts['total'],1)*100:.1f}%)")
+    n_mirror = 0
+    for f in tqdm(files, desc=f'Loading cached'):
+        d = np.load(f)
+        if mirror_prob > 0 and rng.random() < mirror_prob:
+            x, y = d['x_mirror'], d['y_mirror']
+            n_mirror += 1
+        else:
+            x, y = d['x'], d['y']
+        x = x.astype(np.float32)
+        y = y.astype(np.float32)
+        for cx, cy in make_chunks(x, y):
+            all_chunks.append((cx, cy))
+    logger.info(f'Loaded {len(all_chunks)} chunks ({n_mirror}/{len(files)} mirrored)')
     return all_chunks
 
-
 def build_batches(chunks, batch_size, shuffle=True, seed=0):
-    indices = np.arange(len(chunks))
+    sorted_idx = sorted(range(len(chunks)), key=lambda i: chunks[i][0].shape[0])
+    batches = [sorted_idx[i:i + batch_size] for i in range(0, len(sorted_idx), batch_size)]
     if shuffle:
         rng = np.random.default_rng(seed)
-        rng.shuffle(indices)
-    for start in range(0, len(indices), batch_size):
-        batch_idxs = indices[start:start + batch_size]
+        rng.shuffle(batches)
+    for batch_idxs in batches:
         batch_x = []
         batch_y = []
         batch_pad = []
@@ -185,7 +104,6 @@ def build_batches(chunks, batch_size, shuffle=True, seed=0):
             'loss_mask': np.array(batch_loss),
         }
 
-
 def compute_loss(logits, y, loss_mask):
     B, L, C = logits.shape
     logits_flat = logits.reshape(B * L, C)
@@ -200,7 +118,6 @@ def compute_loss(logits, y, loss_mask):
     weighted_loss = nll * valid_mask
     return mx.sum(weighted_loss) / valid_count
 
-
 def compute_accuracy(logits, y, loss_mask):
     B, L, C = logits.shape
     preds = mx.argmax(logits, axis=-1)
@@ -208,7 +125,6 @@ def compute_accuracy(logits, y, loss_mask):
     mask = (loss_mask & (y >= 0)).astype(mx.int32)
     correct = ((preds == target) & (mask == 1))
     return float(mx.sum(correct) / (mx.sum(mask) + 1e-8))
-
 
 def evaluate(model, val_chunks, batch_size):
     model.eval()
@@ -228,31 +144,46 @@ def evaluate(model, val_chunks, batch_size):
         n_batches += 1
     return {'loss': total_loss / max(n_batches, 1), 'acc': total_acc / max(n_batches, 1)}
 
-
 def train_epoch(model, train_chunks, optimizer, batch_size, grad_clip=1.0):
     model.train()
     epoch_loss = 0.0
     n_batches = 0
-    loss_and_grad = nn.value_and_grad(model, lambda m, x, y, pm, lm: compute_loss(m(x, pm), y, lm))
+    
+    from functools import partial
+    
+    def loss_fn(mdl, x, y, pm, lm):
+        return compute_loss(mdl(x, pm), y, lm)
+        
+    loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
+    state = [model.state, optimizer.state]
+    
+    @partial(mx.compile, inputs=state, outputs=state)
+    def step(x, y, pm, lm):
+        loss, grads = loss_and_grad_fn(model, x, y, pm, lm)
+        optimizer.update(model, grads)
+        return loss
+    
     for batch in tqdm(build_batches(train_chunks, batch_size, shuffle=True), desc='Training', leave=False):
         x = mx.array(batch['x'])
         y = mx.array(batch['y'])
         pm = mx.array(batch['padding_mask'])
         lm = mx.array(batch['loss_mask'])
-        loss, grads = loss_and_grad(model, x, y, pm, lm)
-        optimizer.update(model, grads)
-        mx.eval(model.parameters(), optimizer.state)
+        
+        loss = step(x, y, pm, lm)
+        if n_batches % 8 == 0:
+            mx.eval(model.parameters(), optimizer.state)
         epoch_loss += float(loss)
+        if n_batches % 50 == 0:
+            logger.info(f'  step {n_batches}, loss={float(loss):.4f}')
         n_batches += 1
+    mx.eval(model.parameters(), optimizer.state)
     return epoch_loss / max(n_batches, 1)
-
 
 def cosine_schedule(step, total, lr_max, warmup_steps):
     if step < warmup_steps:
         return lr_max * step / warmup_steps
     progress = (step - warmup_steps) / (total - warmup_steps)
     return lr_max * 0.5 * (1.0 + math.cos(math.pi * progress))
-
 
 def train(
     folder: str,
@@ -267,15 +198,34 @@ def train(
 ):
     mx.random.seed(seed)
     np.random.seed(seed)
+    rng = np.random.default_rng(seed)
 
     os.makedirs(out_dir, exist_ok=True)
 
-    train_chunks = load_all_chunks(folder, sd, mirror_prob=0.5, seed=seed, limit=limit_charts)
-    val_chunks = load_all_chunks(folder, sd, mirror_prob=0.0, seed=seed+1, limit=limit_charts)
+    all_files = sorted(Path(folder).glob('*.npz'))
+    if limit_charts:
+        all_files = all_files[:limit_charts]
+        
+    shuffled = list(all_files)
+    rng.shuffle(shuffled)
+    split = int(len(shuffled) * 0.9)
+    train_files, val_files = shuffled[:split], shuffled[split:]
+
+    train_chunks = load_chunks_from_files(train_files, mirror_prob=0.5, rng=rng)
+    val_chunks   = load_chunks_from_files(val_files,   mirror_prob=0.0, rng=rng)
     logger.info(f"Train chunks: {len(train_chunks)}, Val chunks: {len(val_chunks)}")
 
     input_dim = SINGLES_INPUT_DIM if sd == 'singles' else DOUBLES_INPUT_DIM
-    model = LimbSequenceTransformer(input_dim=input_dim, d_model=128, n_heads=8, n_layers=4, ffn_dim=512)
+    
+    # if limit charts < 200, assume it is a smoke test, use smaller model.
+    if limit_charts and limit_charts <= 200:
+        logger.info("SMOKE TEST: Using smaller dummy model.")
+        model = LimbSequenceTransformer(input_dim=input_dim, d_model=64, n_heads=4, n_layers=2, ffn_dim=128)
+        d_model_save, n_heads_save, n_layers_save, ffn_dim_save = 64, 4, 2, 128
+    else:
+        model = LimbSequenceTransformer(input_dim=input_dim, d_model=128, n_heads=8, n_layers=4, ffn_dim=512)
+        d_model_save, n_heads_save, n_layers_save, ffn_dim_save = 128, 8, 4, 512
+        
     mx.eval(model.parameters())
     logger.info("Model built")
 
@@ -286,6 +236,7 @@ def train(
     warmup_steps = len(train_chunks) // batch_size * warmup_epochs
 
     for epoch in range(epochs):
+        logger.info(f'=== Epoch {epoch+1}/{epochs} starting ===')
         lr_now = cosine_schedule(epoch * len(train_chunks) // batch_size, total_steps, lr, warmup_steps)
         optimizer.learning_rate = lr_now
 
@@ -297,16 +248,13 @@ def train(
         if val_metrics['acc'] > best_acc:
             best_acc = val_metrics['acc']
             save_path = os.path.join(out_dir, f'{sd}-arrows_to_limb-mlx-best.safetensors')
-            state = model.parameters()
-            flat_state = _flatten_params(state)
-            np.savez(save_path, **flat_state)
+            save_model(save_path, model)
             with open(os.path.join(out_dir, f'{sd}-arrows_to_limb-mlx-best.meta'), 'w') as f:
-                json.dump({'input_dim': input_dim, 'd_model': 128, 'n_heads': 8, 'n_layers': 4, 'ffn_dim': 512, 'n_classes': 3}, f)
+                json.dump({'input_dim': input_dim, 'd_model': d_model_save, 'n_heads': n_heads_save, 'n_layers': n_layers_save, 'ffn_dim': ffn_dim_save, 'n_classes': 3}, f)
             logger.success(f"New best model saved: acc={best_acc*100:.1f}%")
 
     final_path = os.path.join(out_dir, f'{sd}-arrows_to_limb-mlx-final.safetensors')
-    flat_state = _flatten_params(model.parameters())
-    np.savez(final_path, **flat_state)
+    save_model(final_path, model)
     logger.success(f"Training complete. Best acc: {best_acc*100:.1f}%")
 
     config = {

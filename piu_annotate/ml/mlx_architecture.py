@@ -49,9 +49,6 @@ class LimbSequenceTransformer(nn.Module):
         h = self.input_proj(x)
         h = h + self.pos_enc[:L][None, :, :]
         h = self.dropout(h)
-        if mx.sum(padding_mask) > 0:
-            attn_mask = mx.where(padding_mask[:, None, :, None], -1e9, 0.0)
-        else:
-            attn_mask = None
+        attn_mask = mx.where(padding_mask[:, None, None, :], -1e9, 0.0)
         h = self.encoder(h, mask=attn_mask)
         return self.out_head(h)
