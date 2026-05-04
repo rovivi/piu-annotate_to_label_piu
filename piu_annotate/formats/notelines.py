@@ -366,16 +366,15 @@ def relabel_with_ambiguous_e(
                         has_prev_orientation = True
                 prev_annot_idx += 1
 
-    if not (has_prev_orientation or repeats_center):
-        return limb_annot
+    # Relaxed rule: Apply 'e' to ambiguous center positions without requiring prior orientation.
 
     # Apply 'e' to ambiguous center positions only.
     new_annot = list(limb_annot)
     annot_idx = 0
     for pos, sym in enumerate(line):
-        if sym in '1234':
-            if sym in '12' and pos in ambiguous:
-                if new_annot[annot_idx] in ('l', 'r'):
+        if sym in '12':
+            if pos in ambiguous:
+                if annot_idx < len(new_annot) and new_annot[annot_idx] in ('l', 'r'):
                     new_annot[annot_idx] = 'e'
             annot_idx += 1
     return ''.join(new_annot)

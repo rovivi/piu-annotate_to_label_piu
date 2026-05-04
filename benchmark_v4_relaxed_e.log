@@ -1,0 +1,72 @@
+Loading vis-ss index from /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524...
+  4123 vis-ss charts indexed
+  8792 processed_db charts
+
+=== BENCHMARK: 7441 matched charts ===
+
+                                       current  with_fix
+  -------------------------------------------------------
+  Tap accuracy                          96.4%     96.4%  (3292950/3417012)
+    - Triple taps                       86.9%     86.8%  (77283/88977)
+    - Repeated/jack taps                93.4%     93.4%  (312877/335001)
+    - Single non-repeated               96.9%     96.9%  (2917953/3010846)
+  Hold accuracy                         97.0%  (542333/559023)
+
+=== WORST 10 CHARTS by tap accuracy ===
+
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D18_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_S3_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D17_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D18_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_S3_ARCADE
+      n/a  triple=n/a  jack=n/a  Ugly_Dee_-_Banya_Production_D17_ARCADE
+    53.2%  triple=n/a  jack=62.5%  Destination_-_SHORT_CUT_-_-_SHK_D20_SHORTCUT
+    53.2%  triple=n/a  jack=62.5%  Destination_-_SHORT_CUT_-_-_SHK_D20_SHORTCUT
+    60.5%  triple=n/a  jack=74.3%  The_End_of_the_World_ft._Skizzo_-_MonstDeath_S20_ARCADE
+    60.8%  triple=n/a  jack=74.3%  The_End_of_the_World_ft._Skizzo_-_MonstDeath_S20_ARCADE
+
+=== TOP 30 HARDEST CHARTS (by level) ===
+
+  shortname                                       lv      tap     jack   triple
+  --------------------------------------------------------------------------------
+  Ultimatum_-_Cosmograph_D27_ARCADE               27    87.0%    58.7%    84.8%
+  Ultimatum_-_Cosmograph_D27_ARCADE               27    87.6%    58.7%    84.8%
+  Appassionata_-_Cashew_x_D_AAN_x_Jehezukiel_D27_ARCADE   27    89.7%    98.9%   100.0%
+  Appassionata_-_Cashew_x_D_AAN_x_Jehezukiel_D27_ARCADE   27    89.9%    98.9%   100.0%
+  Neo_Catharsis_-_TAG_underground_overlay_D27_ARCADE   27    90.4%    96.9%    98.2%
+  Neo_Catharsis_-_TAG_underground_overlay_D27_ARCADE   27    91.4%    96.9%    98.2%
+  1950_-_SLAM_D27_ARCADE                          27    94.9%    98.8%   100.0%
+  1950_-_SLAM_D27_ARCADE                          27    94.9%    98.8%   100.0%
+  Crimson_hood_-_Springhead_D26_ARCADE            26    83.2%    91.5%    93.5%
+  Crimson_hood_-_Springhead_D26_ARCADE            26    84.0%    91.5%    93.5%
+  Extreme_Music_School_2nd_period_feat._Nanahira_-_Massive_New_Krew__RoughSketch_D26_ARCADE   26    84.4%    83.1%    95.0%
+  Hercules_-_Abel_D26_ARCADE                      26    85.0%    65.8%   100.0%
+  Extreme_Music_School_2nd_period_feat._Nanahira_-_Massive_New_Krew__RoughSketch_D26_ARCADE   26    85.2%    83.1%    93.6%
+  Hercules_-_Abel_D26_ARCADE                      26    87.3%    74.0%   100.0%
+  Prime_Time_-_Cashew_D26_REMIX                   26    87.4%    77.6%    87.5%
+  Prime_Time_-_Cashew_D26_REMIX                   26    87.4%    76.1%    87.5%
+  Leather_-_Doin_D26_REMIX                        26    88.0%    98.9%   100.0%
+  Leather_-_Doin_D26_REMIX                        26    88.8%   100.0%   100.0%
+  CHAOS_AGAIN_-_NAOKI_underground_--_D26_ARCADE   26    90.2%    89.9%    90.8%
+  CHAOS_AGAIN_-_NAOKI_underground_--_D26_ARCADE   26    90.2%    89.9%    90.8%
+  *_this_game_does_not_exist_*_-_litmus*_x_Ester_D26_ARCADE   26    90.2%    78.9%   100.0%
+  Achluoias_-_D_AAN_D26_ARCADE                    26    90.4%    91.0%    82.6%
+  *_this_game_does_not_exist_*_-_litmus*_x_Ester_D26_ARCADE   26    90.6%    78.9%   100.0%
+  Achluoias_-_D_AAN_D26_ARCADE                    26    91.0%    91.0%    82.6%
+  iRELLiA_-_HyuN_D26_ARCADE                       26    91.0%    94.5%    96.6%
+  PRiMA_MATERiA_-_xi_D26_ARCADE                   26    91.0%    81.0%    98.8%
+  PRiMA_MATERiA_-_xi_D26_ARCADE                   26    91.0%    82.8%    98.8%
+  iRELLiA_-_HyuN_D26_ARCADE                       26    91.3%    94.5%    96.6%
+  Cleaner_-_Doin_D26_ARCADE                       26    91.5%   100.0%   100.0%
+  BEMERA_-_YAHPP_D26_INFOBAR_TITLE_REMIX          26    91.7%    78.9%    88.2%
+
+=== BY MODE ===
+
+  Mode S (4801 charts):
+    Tap overall                         96.3%  (1936784/2011637)
+    Triple taps                         75.4%  (30717/40747)
+    Repeated/jack taps                  93.0%  (204567/220012)
+  Mode D (2640 charts):
+    Tap overall                         96.5%  (1356166/1405375)
+    Triple taps                         96.5%  (46566/48230)
+    Repeated/jack taps                  94.2%  (108310/114989)
