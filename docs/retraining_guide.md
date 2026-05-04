@@ -333,3 +333,117 @@ python3 scripts/benchmark_annotations.py --show_worst 30 --top_diff 30 --plot
     *   **Siguiente gran paso:** Migración a **Transformers (MLX)** para procesar los charts como secuencias temporales completas.
     *   **Refinamiento Físico:** El Tactician necesita una penalización por rotación de cadera para evitar saltos imposibles reportados en los logs.
 
+---
+
+## MLX Transformer Migration — Attempt 2026-05-04
+
+### Objetivo
+Migrar de LightGBM (75.4% singles, 96.4% tap) a un `LimbSequenceTransformer` (MLX) que procese el chart completo como secuencia, con `e` (either foot) como clase separada (no forzada a `l`).
+
+**Target:** 90%+ singles accuracy
+
+### Lo que se implementó
+
+| Componente | Archivo | Cambio |
+|---|---|---|
+| Mirror augmentation (horizontal flip) | `piu_annotate/formats/mirror.py` | `mirror_line`, `mirror_limb_annot`, `mirror_chartstruct` |
+| Tests de mirror | `tests/test_mirror.py` | Round-trip tests |
+| Transformer architecture | `piu_annotate/ml/mlx_architecture.py` | `LimbSequenceTransformer`: 4 capas, 8 heads, d_model=128, 3 classes (l/r/e) |
+| Labels con `e` como clase 2 | `piu_annotate/ml/datapoints.py` | `LimbLabel.from_limb_annot`: `e→2` (antes `e→0`) |
+| Loss: cross-entropy 3-class | `train_mlx.py` | log-softmax manual + take_along_axis (MLX 0.29.3 no tiene `mx.log_softmax`) |
+| Model save/load | `train_mlx.py` | Params aplanados con dot-keys en `np.savez` |
+
+### Crash Analysis — PID 92111 (2026-05-04)
+
+**Síntoma:** Proceso corrió ~18 min, desapareció sin archivos de output, sin logs de error.
+
+**Report completo:** `MLX_TRAINING_BUG_REPORT.md`
+
+#### Bugs críticos encontrados
+
+**BUG 1 (HIGH):** Guardar `.npz` con extensión `.safetensors`
+```python
+# train_mlx.py:299-310 — WRONG
+save_path = ...f'{sd}-arrows_to_limb-mlx-best.safetensors'
+np.savez(save_path, **flat_state)  # Produce .npz, no .safetensors
+```
+`mx.load(save_path)` fallaría. Fix: usar `mx.save` o `safetensors.numpy.save_file`.
+
+**BUG 2 (HIGH):** Mirror augmentation mezclaba features originales con labels reflejadas
+```python
+# train_mlx.py:138-144
+cx[:min_len] = mx2[:min_len]   # Sobrescribe features con mirror
+cy[:min_len] = my[:min_len]    # Usa labels del chart mirrorado
+# → desalineación feature/label si min_len < len(cx)
+```
+Fix: usar `cx_mirror` + `cy_mirror` consistentemente, o original completo.
+
+**BUG 3 (MEDIUM):** Attention mask con forma incorrecta
+```python
+# train_mlx.py:89-92 — WRONG
+attn_mask = mx.where(padding_mask[:, None, :, None], -1e9, 0.0)
+# padding_mask es (B, L); indexing produce (B, 1, L, 1) que no broadcastea a (B, H, L, L)
+```
+Fix: `mx.where(padding_mask[:, None, :], -1e9, 0.0)` → `(B, 1, L)` que broadcastea correctamente.
+
+**BUG 4 (MEDIUM):** Todos los chunks en RAM antes de entrenar
+```python
+# train_mlx.py:127 — all_chunks = []
+for cs, label_col in ...:
+    all_chunks.append((cx, cy))  # 4261 charts × 1-10+ chunks = gigabytes en RAM
+```
+Risk: OOM. El proceso llegó a 5.5GB VSIZE antes de morir.
+
+**BUG 5 (LOW):** ~537 charts (~10%) skipados silenciosamente por "string index out of range" en loading.
+
+#### Causa más probable del crash: OOM
+
+El proceso creció a 5.5GB VSIZE y desapareció. En M-series con unified memory, macOS puede matar procesos silenciosamente cuando hay presión de memoria (SIGKILL sin handler, sin core dump).
+
+Si fue OOM, probablemente ocurrió durante el primer `np.savez()` (escribir ~300MB de params) o en la última fase del epoch 1.
+
+### Próximos pasos recomendados
+
+1. **Fix BUG 1** (safetensor format) — necesario para que cualquier modelo se pueda cargar
+2. **Fix BUG 2** (mirror augmentation) — training con datos corruptos
+3. **Correr con monitoreo de memoria:**
+   ```bash
+   /usr/bin/time -l python cli/limbuse/train_mlx.py ... 2>&1 | tee training.log
+   ```
+4. **Añadir logging por epoch** para saber exactamente dónde muere
+5. **Considerar data loading lazy** (generators en vez de materializar todo en RAM)
+
+---
+
+## Resumen: Guía rápida de re-entrenamiento (para el yo del futuro)
+
+```bash
+# 1. Generar dataset nuevo con e-centers (si cambió la regla)
+python3 scripts/relabel_visss_with_e_centers.py
+
+# 2. Limpiar cache + backup modelos
+rm -rf cli/temp/dataset-storage/*.pkl.gz
+mkdir -p artifacts/models/visss-backup-$(date +%Y%m%d)
+cp artifacts/models/visss/*.txt artifacts/models/visss-backup-$(date +%Y%m%d)/
+
+# 3A. Re-entrenar LightGBM (pipeline actual, estable)
+python3 cli/limbuse/train_lgbm.py \
+  --manual_chart_struct_folder artifacts/manual-chartstructs/visss-120524-eaware/ \
+  --singles_or_doubles singles
+python3 cli/limbuse/train_lgbm.py \
+  --manual_chart_struct_folder artifacts/manual-chartstructs/visss-120524-eaware/ \
+  --singles_or_doubles doubles
+
+# 3B. Re-entrenar MLX Transformer (experimental, ver BUGs arriba)
+#    AVISO: tiene BUGs críticos documentados arriba. Leer MLX_TRAINING_BUG_REPORT.md antes.
+python3 cli/limbuse/train_mlx.py \
+  --manual_chart_struct_folder artifacts/manual-chartstructs/visss-120524-eaware/ \
+  --singles_or_doubles singles \
+  --out_dir artifacts/models/visss-mlx/ \
+  --epochs 20 --batch_size 16 --lr 3e-4
+
+# 4. Inferencia + benchmark
+python3 cli/ingest/process_db_matches.py
+python3 scripts/benchmark_annotations.py --show_worst 30 --top_diff 30 --plot
+```
+

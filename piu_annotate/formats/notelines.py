@@ -23,6 +23,8 @@ def get_limb_idx_for_arrow_pos(
     arrow_pos: int
 ) -> int:
     line = line_with_active_holds.replace('`', '')
+    if arrow_pos >= len(line):
+        return 0
     n_active_symbols_before = arrow_pos - line[:arrow_pos].count('0')
     return n_active_symbols_before
 
@@ -401,6 +403,8 @@ def add_active_holds(line: str, active_hold_idxs: set[str]) -> str:
     """ Add active holds into line as '4'. 01000 -> 01040 """
     aug_line = list(line)
     for panel_idx in active_hold_idxs:
+        if panel_idx >= len(aug_line):
+            continue
         if aug_line[panel_idx] == '0':
             aug_line[panel_idx] = '4'
         elif aug_line[panel_idx] in ['1', '2']:
@@ -415,7 +419,7 @@ def parse_line(line: str) -> str:
         https://github.com/stepmania/stepmania/wiki/Note-Types
         Handle lines like:
             0000F00000
-            00{2|n|1|0}0000000    
+            00{2|n|1|0}0000000
             0000{M|n|1|0} -> 0
     """
     ws = re.split('{|}', line)
@@ -424,7 +428,12 @@ def parse_line(line: str) -> str:
         if '|' not in w:
             nl += w
         else:
-            [note_type, attribute, fake_flag, reserved_flag] = w.split('|')
+            parts = w.split('|')
+            if len(parts) < 2:
+                nl += w
+                continue
+            note_type = parts[0]
+            fake_flag = parts[2] if len(parts) > 2 else '0'
             if fake_flag == '1':
                 nl += '0'
             else:

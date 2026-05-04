@@ -356,6 +356,10 @@ def main():
     parser.add_argument('--top_diff', type=int, default=30, help='Show top N hardest charts')
     parser.add_argument('--plot', action='store_true', help='Generate matplotlib charts (saved to benchmark_charts.png)')
     parser.add_argument('--plot_out', default='benchmark_charts.png', help='Output path for plot')
+    parser.add_argument('--diff_viewer', action='store_true',
+                        help='Regenerar diff viewer HTML tras el benchmark y abrirlo')
+    parser.add_argument('--n_viewer_charts', type=int, default=40,
+                        help='Cuántos charts incluir en el diff viewer por modo (default 40)')
     args = parser.parse_args()
 
     print(f'Loading vis-ss index from {args.vis_dir}...')
@@ -426,6 +430,19 @@ def main():
 
     if args.plot:
         plot_results(per_chart, totals, args.plot_out)
+
+    if args.diff_viewer:
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), 'generate_diff_viewer.py')
+        cmd = [
+            sys.executable, script,
+            '--n_charts', str(args.n_viewer_charts),
+            '--mode', 'all',
+        ]
+        if args.song:
+            cmd += ['--song', args.song]
+        print(f'\nRegenerando diff viewer...')
+        subprocess.run(cmd, check=False)
 
 
 if __name__ == '__main__':

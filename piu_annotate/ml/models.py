@@ -109,34 +109,31 @@ class LGBModel(ModelWrapper):
 
 
 class MLXModel(ModelWrapper):
-    def __init__(self, model: LimbTransformer):
+    def __init__(self, model):
         self.model = model
 
     @staticmethod
-    def load(file: str, input_dim: int):
-        model = LimbTransformer(input_dim=input_dim)
+    def load(file: str, input_dim: int, n_classes: int = 3):
+        from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
+        model = LimbSequenceTransformer(input_dim=input_dim)
         model.load_weights(file)
         return MLXModel(model)
 
     def predict(self, points: NDArray) -> NDArray:
         x = mx.array(points).astype(mx.float32)
         if len(x.shape) == 2:
-            x = x[None] # Add batch dim
+            x = x[None]
         out = self.model(x)
-        # out shape: (batch, seq, 1)
-        prob = mx.sigmoid(out)
-        return np.array((prob > 0.5).astype(mx.int32)).squeeze()
+        pred_idxs = mx.argmax(out, axis=-1)
+        return np.array(pred_idxs).squeeze()
 
     def predict_prob(self, points: NDArray) -> NDArray:
         x = mx.array(points).astype(mx.float32)
         if len(x.shape) == 2:
             x = x[None]
         out = self.model(x)
-        p = np.array(mx.sigmoid(out)).squeeze()
-        if len(p.shape) == 0:
-            p = p.item()
-            return np.array([[1 - p, p]])
-        return np.stack([1 - p, p]).T
+        p = np.array(mx.softmax(out, axis=-1)).squeeze()
+        return p
     
     def predict_log_prob(self, points: NDArray) -> NDArray:
         return np.log(self.predict_prob(points))

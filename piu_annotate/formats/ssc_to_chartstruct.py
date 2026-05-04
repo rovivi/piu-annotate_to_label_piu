@@ -116,14 +116,10 @@ def stepchart_ssc_to_chartstruct(
     in_fake = lambda beat: fakes.beat_in_any_range(beat, inclusive_end = False)
     in_fake_or_warp = lambda beat: in_warp(beat) or in_fake(beat)
 
-    if debug:
-        logger.debug(f'In debug mode in ssc to chartstruct - inspect beats, fakes, etc.')
-        import code; code.interact(local=dict(globals(), **locals()))
-
     # setup initial conditions
     beat = 0
     time = 0
-    bpm: float = beat_to_bpm[beat]
+    bpm: float = beat_to_bpm.get(beat, beat_to_bpm[list(beat_to_bpm.keys())[0]] if beat_to_bpm else 60.0)
     hold_ticks_per_beat: float = holdticks.get(beat, 1)
 
     empty_line = b2l.get_empty_line()
@@ -411,12 +407,18 @@ class BeatToLines:
 
     def handle_halfdouble(self):
         """ Add 00 to each side of lines """
-        example_line = list(self.beat_to_lines.values())[0]
+        lines_list = list(self.beat_to_lines.values())
+        if not lines_list:
+            return
+        example_line = lines_list[0]
         if len(example_line) == 6:
             self.beat_to_lines = {k: f'00{v}00' for k, v in self.beat_to_lines.items()}
 
     def get_empty_line(self) -> str:
-        example_line = list(self.beat_to_lines.values())[0]
+        lines_list = list(self.beat_to_lines.values())
+        if not lines_list:
+            return '00000'
+        example_line = lines_list[0]
         return '0' * len(example_line)
 
 
@@ -424,20 +426,29 @@ class BeatToLines:
     Parse {key}={value} dicts
 """
 def parse_beat_value_map(
-    data_string: str, 
+    data_string: str,
     rounding = None
 ) -> dict[float, float]:
-    """ Parses comma-delimited {key}={value} dict, with optional rounding """
+    """ Parses comma-delimited {key}={value} dict, with optional rounding.
+        Filters out zero or negative values to match StepMania behavior.
+    """
     d = {}
     if data_string == '':
         return d
     for line in data_string.split(','):
-        [beat, val] = line.split('=')
-        beat, val = float(beat), float(val)
-        if rounding:
-            beat = round(beat, 3)
-            val = round(val, 3)
-        d[beat] = val
+        parts = line.split('=')
+        if len(parts) != 2:
+            continue
+        try:
+            beat, val = float(parts[0]), float(parts[1])
+            if val <= 0:  # Filter zero/negative values like StepMania does
+                continue
+            if rounding:
+                beat = round(beat, 3)
+                val = round(val, 3)
+            d[beat] = val
+        except ValueError:
+            continue
     return d
 
 

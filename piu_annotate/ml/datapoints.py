@@ -77,12 +77,12 @@ class ArrowDataPoint:
 
 @dataclass
 class LimbLabel:
-    limb: int   # 0 for left, 1 for right
+    limb: int   # 0 for left, 1 for right, 2 for either (e)
 
     @staticmethod
     def from_limb_annot(annot: str):
-        mapper = {'l': 0, 'r': 1, 'h': 0, 'e': 0}
-        return LimbLabel(limb = mapper[annot])
+        mapper = {'l': 0, 'r': 1, 'h': 0, 'e': 2}
+        return LimbLabel(limb=mapper[annot])
 
     def to_array(self) -> NDArray:
         return np.array(self.limb)

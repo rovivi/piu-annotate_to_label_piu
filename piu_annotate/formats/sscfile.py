@@ -14,12 +14,19 @@ def parse_ssc_to_dict(string: str) -> dict[str, str]:
 
     d = dict()
     for kv in kvs:
-        if ':' in kv:
-            [k, *v] = kv.strip().split(':')
-            v = ':'.join(v)
-            assert k[0] == '#'
+        kv = kv.strip()
+        if ':' not in kv:
+            continue
+        parts = kv.split(':', 1)  # Split only on first colon to handle values with colons
+        k = parts[0]
+        v = parts[1] if len(parts) > 1 else ''
+        if k.startswith('#'):
             k = k[1:]
-            d[k] = v
+        elif k:  # If key doesn't start with #, skip this entry
+            continue
+        else:
+            continue
+        d[k] = v
     return d
 
 
@@ -223,9 +230,11 @@ class StepchartSSC(UserDict):
             for line in lines:
                 if line == '#NOTES:':
                     continue
-                parsed_line = notelines.parse_line(line)
-                if any(x not in ok_chars for x in parsed_line):
-                    import code; code.interact(local=dict(globals(), **locals()))
+                try:
+                    parsed_line = notelines.parse_line(line)
+                    if any(x not in ok_chars for x in parsed_line):
+                        return True
+                except ValueError:
                     return True
         return False            
 
