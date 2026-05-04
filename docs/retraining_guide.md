@@ -312,4 +312,24 @@ python3 cli/ingest/process_db_matches.py
 python3 scripts/benchmark_annotations.py --show_worst 30 --top_diff 30 --plot
 ```
 
-Listo.
+## Historial de Experimentos y Resultados
+
+### [2026-05-04] - Optimización de Triple-Taps y Despliegue Masivo
+**Configuración:** Relajación total de `e` centers (se aplica a todo centro en triple-tap) + Entrenamiento con dataset completo (mapping `e` -> `0`).
+
+*   **Lo que se hizo:**
+    *   Se eliminó la restricción de "contexto previo" para marcar `e`. Ahora cualquier centro en triple-tap es `e`.
+    *   Se re-entrenó el suite LightGBM completo.
+    *   Inferencia limpia de **4,418 charts** (637 canciones).
+    *   Sincronización total con `piulatam`.
+
+*   **Resultados (Benchmarks):**
+    *   **Doubles:** **96.5%** (Mejora significativa en estabilidad).
+    *   **Triple-taps:** **86.9%** (Recuperado tras el bajón del experimento anterior).
+    *   **Singles:** **75.4%** (Identificado como el techo del modelo GBDT actual).
+
+*   **Notas del Dev (Roadmap):**
+    *   El modelo LightGBM ha llegado a su límite en Singles. No puede distinguir preferencias de bracket sin memoria de secuencia.
+    *   **Siguiente gran paso:** Migración a **Transformers (MLX)** para procesar los charts como secuencias temporales completas.
+    *   **Refinamiento Físico:** El Tactician necesita una penalización por rotación de cadera para evitar saltos imposibles reportados en los logs.
+
