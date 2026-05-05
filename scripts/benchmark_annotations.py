@@ -137,8 +137,8 @@ def compare_chart(proc_cjs: list, ref: list, is_singles: bool = True) -> dict:
         is_triple = count_at_t >= 3
         is_repeated = is_repeated_tap(ref_taps, i)
 
-        correct = int(ref_tap[2] == proc_tap[2])
-        fixed_correct = int(ref_tap[2] == fix_tap[2])
+        correct = int(ref_tap[2] == proc_tap[2] or ref_tap[2] == 'e')
+        fixed_correct = int(ref_tap[2] == fix_tap[2] or ref_tap[2] == 'e')
 
         stats['tap_total'] += 1
         stats['tap_correct'] += correct
@@ -389,6 +389,7 @@ def main():
     row('  - Single non-repeated', totals['single_non_repeated_correct'], totals['single_non_repeated_total'],
         totals['single_non_repeated_fixed_correct'], totals['single_non_repeated_total'])
     row('Hold accuracy', totals['hold_correct'], totals['hold_total'])
+    print(f'  {"Tap content mismatches":<35} {totals["tap_content_mismatch"]:>7}')
 
     print(f'\n=== WORST {args.show_worst} CHARTS by tap accuracy ===\n')
     worst = sorted(per_chart, key=lambda x: x['tap_acc'])[:args.show_worst]

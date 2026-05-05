@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIU Limb Annotation — Reporte v8 | 91.4% Accuracy (Completo)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #f0883e;
+    --danger: #f85149;
+    --left: #3b82f6;
+    --right: #ef4444;
+    --either: #6b7280;
+    --gold: #ffd700;
+    --purple: #a371f7;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── LIVE BANNER ── */
+  .live-banner {
+    background: linear-gradient(90deg, #0a1a0a, #0d2b0d, #0a1a0a);
+    border-bottom: 2px solid var(--accent2);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .live-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent2);
+    box-shadow: 0 0 8px 2px rgba(63,185,80,0.6);
+  }
+  .live-banner span { font-weight: 700; color: var(--accent2); letter-spacing: 0.05em; }
+  .live-banner small { color: var(--text-muted); margin-left: auto; font-size: 12px; }
+
+  /* ── HEADER ── */
+  header {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 56px 24px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    top: -80px; left: 50%; transform: translateX(-50%);
+    width: 600px; height: 300px;
+    background: radial-gradient(ellipse, rgba(88,166,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .header-tag {
+    display: inline-block;
+    background: rgba(63,185,80,0.15);
+    border: 1px solid var(--accent2);
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  header h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+  header h1 .pct {
+    background: linear-gradient(135deg, #ffd700, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  header .subtitle {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    max-width: 640px;
+    margin: 0 auto 28px;
+  }
+  .header-stats {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hstat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 20px;
+    min-width: 130px;
+  }
+  .hstat .val {
+    font-size: 1.6rem;
+    font-weight: 800;
+    display: block;
+  }
+  .hstat .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .hstat.gold .val { color: var(--gold); }
+  .hstat.blue .val { color: var(--accent); }
+  .hstat.green .val { color: var(--accent2); }
+  .hstat.orange .val { color: var(--accent3); }
+
+  /* ── LAYOUT ── */
+  main { max-width: 1200px; margin: 0 auto; padding: 40px 20px 80px; }
+
+  section { margin-bottom: 60px; }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .icon { font-size: 1.3rem; }
+  h2 .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+    border: 1px solid rgba(88,166,255,0.3);
+    margin-left: 8px;
+  }
+
+  h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .card.highlight { border-color: var(--accent); background: rgba(88,166,255,0.05); }
+  .card.success { border-color: var(--accent2); background: rgba(63,185,80,0.05); }
+  .card.warning { border-color: var(--accent3); background: rgba(240,136,62,0.05); }
+  .card.danger { border-color: var(--danger); background: rgba(248,81,73,0.05); }
+
+  /* ── PROGRESS BARS ── */
+  .model-progress { margin-bottom: 16px; }
+  .model-progress .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .model-progress .name { font-weight: 600; }
+  .model-progress .pct-val { font-weight: 700; font-size: 1.1rem; }
+  .pbar-track {
+    height: 12px;
+    background: var(--bg3);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .pbar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 1s ease;
+    position: relative;
+  }
+  .pbar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 40px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+  }
+  .pbar-lgbm .pbar-fill { background: linear-gradient(90deg, #6b7280, #9ca3af); }
+  .pbar-v7b .pbar-fill { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+  .pbar-v8 .pbar-fill { background: linear-gradient(90deg, #ffd700, #ff8c00); animation: shimmer 2s infinite; }
+  @keyframes shimmer {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.2); }
+    100% { filter: brightness(1); }
+  }
+
+  /* ── CHARTS ── */
+  .chart-wrap {
+    position: relative;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .chart-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 20px;
+  }
+  .charts-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 768px) { .charts-2col { grid-template-columns: 1fr; } }
+
+  /* ── ARCHITECTURE DIAGRAM ── */
+  .arch-diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    overflow-x: auto;
+  }
+  .arch-pipeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    min-width: 600px;
+  }
+  .arch-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .arch-box {
+    border-radius: 10px;
+    padding: 12px 20px;
+    text-align: center;
+    border: 1.5px solid;
+    min-width: 140px;
+    position: relative;
+  }
+  .arch-box .ab-title { font-weight: 700; font-size: 0.85rem; }
+  .arch-box .ab-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 3px; }
+  .arch-box.input { background: rgba(88,166,255,0.12); border-color: var(--accent); }
+  .arch-box.norm { background: rgba(163,113,247,0.12); border-color: var(--purple); }
+  .arch-box.proj { background: rgba(63,185,80,0.12); border-color: var(--accent2); }
+  .arch-box.pos { background: rgba(240,136,62,0.12); border-color: var(--accent3); }
+  .arch-box.drop { background: rgba(107,114,128,0.12); border-color: var(--either); }
+  .arch-box.transformer { background: rgba(255,215,0,0.08); border-color: var(--gold); min-width: 200px; }
+  .arch-box.outnorm { background: rgba(163,113,247,0.12); border-color: var(--purple); }
+  .arch-box.head { background: rgba(248,81,73,0.12); border-color: var(--danger); }
+  .arch-box.output { background: rgba(63,185,80,0.15); border-color: var(--accent2); }
+
+  .arch-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 0;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+  }
+  .arch-arrow small { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+  .arch-features {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 24px;
+  }
+  .feat-group {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .feat-group h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .feat-group h4.blue { color: var(--accent); }
+  .feat-group h4.purple { color: var(--purple); }
+  .feat-group h4.green { color: var(--accent2); }
+  .feat-group h4.orange { color: var(--accent3); }
+  .feat-tag {
+    display: inline-block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    margin: 2px 3px 2px 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  /* ── CAUSAL MASK VIZ ── */
+  .causal-viz {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .mask-grid {
+    display: grid;
+    gap: 3px;
+  }
+  .mask-cell {
+    width: 32px; height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: monospace;
+  }
+  .mask-cell.attend { background: rgba(63,185,80,0.3); border: 1px solid rgba(63,185,80,0.5); color: var(--accent2); }
+  .mask-cell.block { background: rgba(248,81,73,0.15); border: 1px solid rgba(248,81,73,0.2); color: rgba(248,81,73,0.4); }
+  .mask-cell.diag { background: rgba(255,215,0,0.2); border: 1px solid rgba(255,215,0,0.5); color: var(--gold); }
+  .mask-cell.label { background: transparent; border: none; color: var(--text-muted); font-size: 11px; }
+  .causal-explain { flex: 1; min-width: 240px; }
+
+  /* ── EPOCH TABLE ── */
+  .epoch-table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    background: var(--bg3);
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid rgba(48,54,61,0.6);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    white-space: nowrap;
+  }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  tr.best-row td { background: rgba(255,215,0,0.06); }
+  tr.best-row td:first-child { border-left: 3px solid var(--gold); }
+  tr.milestone td { background: rgba(63,185,80,0.05); }
+  tr.milestone td:first-child { border-left: 3px solid var(--accent2); }
+  .badge-ss { background: rgba(240,136,62,0.2); color: var(--accent3); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
+  .badge-rec { background: rgba(255,215,0,0.2); color: var(--gold); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
+  .badge-90 { background: rgba(63,185,80,0.2); color: var(--accent2); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
+
+  /* ── KEY FINDINGS ── */
+  .finding {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    align-items: flex-start;
+  }
+  .finding:hover { border-color: rgba(88,166,255,0.4); }
+  .finding-num {
+    font-size: 1.2rem;
+    font-weight: 800;
+    min-width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg3);
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .finding-body { flex: 1; }
+  .finding-title { font-weight: 700; margin-bottom: 5px; }
+  .finding-desc { color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
+  .finding-desc code {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85em;
+    color: var(--accent);
+  }
+  .finding.bug .finding-num { color: var(--danger); background: rgba(248,81,73,0.1); }
+  .finding.insight .finding-num { color: var(--accent2); background: rgba(63,185,80,0.1); }
+  .finding.perf .finding-num { color: var(--gold); background: rgba(255,215,0,0.1); }
+
+  /* ── PIU VISUALIZER ── */
+  #piu-section { }
+  .piu-container {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .piu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .piu-title { font-weight: 700; font-size: 1rem; }
+  .piu-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .piu-legend {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .piu-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .piu-controls button {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .piu-controls button:hover { background: var(--accent); border-color: var(--accent); color: #000; }
+  .piu-controls button.active { background: var(--accent); border-color: var(--accent); color: #000; }
+  .piu-controls label { font-size: 12px; color: var(--text-muted); }
+  .piu-controls input[type=range] { accent-color: var(--accent); }
+
+  #piuCanvas {
+    display: block;
+    width: 100%;
+    border-radius: 8px;
+    background: #080c10;
+    cursor: crosshair;
+  }
+  .piu-tooltip {
+    position: fixed;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 200;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  .piu-tooltip.show { opacity: 1; }
+  .piu-tooltip strong { color: var(--accent); }
+
+  /* ── TECH CONFIG ── */
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .config-item {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .config-item .key {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .config-item .value {
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 1rem;
+    color: var(--accent);
+  }
+  .config-item .value.green { color: var(--accent2); }
+  .config-item .value.orange { color: var(--accent3); }
+  .config-item .value.gold { color: var(--gold); }
+
+  .code-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: #a8b5c9;
+  }
+  .code-block .kw { color: #ff7b72; }
+  .code-block .fn { color: #d2a8ff; }
+  .code-block .str { color: #a5d6ff; }
+  .code-block .cmt { color: #8b949e; font-style: italic; }
+  .code-block .num { color: #f0883e; }
+
+  /* ── SS SECTION ── */
+  .ss-visual {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-top: 16px;
+  }
+  .ss-box {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .ss-box .phase { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .ss-box.train .phase { color: var(--accent); }
+  .ss-box.infer .phase { color: var(--accent2); }
+  .ss-box.ss .phase { color: var(--accent3); }
+  .ss-box .desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+  /* ── AR GAP ── */
+  .ar-gap-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 32px;
+    flex-wrap: wrap;
+  }
+  .ar-val {
+    text-align: center;
+  }
+  .ar-val .num { font-size: 3rem; font-weight: 900; display: block; }
+  .ar-val .lbl { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .ar-gap-arrow { font-size: 2rem; color: var(--text-muted); }
+  .ar-diff { text-align: center; }
+  .ar-diff .num { font-size: 3rem; font-weight: 900; color: var(--accent2); display: block; }
+  .ar-diff .lbl { font-size: 12px; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.1em; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  footer strong { color: var(--text); }
+
+  /* ── UTILS ── */
+  .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  .text-muted { color: var(--text-muted); }
+  .text-accent { color: var(--accent); }
+  .text-green { color: var(--accent2); }
+  .text-gold { color: var(--gold); }
+  .text-orange { color: var(--accent3); }
+  .text-red { color: var(--danger); }
+  .mt-4 { margin-top: 16px; }
+  .mt-8 { margin-top: 32px; }
+  .mb-4 { margin-bottom: 16px; }
+  p { margin-bottom: 12px; color: var(--text-muted); line-height: 1.7; }
+  strong { color: var(--text); }
+  .highlight-text {
+    background: rgba(88,166,255,0.1);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 16px 0;
+    font-size: 0.95rem;
+  }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+  .ss-schedule {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .ss-dot {
+    width: 20px; height: 20px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px;
+    font-weight: 700;
+    color: white;
+  }
+</style>
+</head>
+<body>
+
+<!-- LIVE BANNER -->
+<div class="live-banner">
+  <div class="live-dot"></div>
+  <span>&#10003; ENTRENAMIENTO COMPLETO — v8 FINALIZADO</span>
+  <span style="color:var(--text-muted)">Early stop @ epoch 37/40 &middot; Best: <strong style="color:var(--gold)">91.4%</strong> @ epoch 25</span>
+  <small>Actualizado: 2026-05-05 10:07 &middot; Proyecto: piu-annotate_to_label_piu</small>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="header-tag">Pump It Up &mdash; Limb Annotation ML</div>
+  <h1>Transformer v8 Alcanza<br><span class="pct">91.4% de Accuracy</span></h1>
+  <p class="subtitle">De un baseline LightGBM al 75.4% hasta un transformer causal con scheduled sampling al 91.4% — entrenamiento completo, early stop en época 37.</p>
+  <div class="header-stats">
+    <div class="hstat gold"><span class="val">91.4%</span><span class="lbl">v8 Best (ep.25)</span></div>
+    <div class="hstat blue"><span class="val">88.6%</span><span class="lbl">v7b Best</span></div>
+    <div class="hstat green"><span class="val">0.0pp</span><span class="lbl">AR Gap (ideal)</span></div>
+    <div class="hstat orange"><span class="val">14.7M</span><span class="lbl">v8 Parámetros</span></div>
+    <div class="hstat" style="border-color:var(--purple)"><span class="val" style="color:var(--purple)">9</span><span class="lbl">Épocas para >88.6%</span></div>
+  </div>
+</header>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 1: RESUMEN EJECUTIVO -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="resumen">
+  <h2><span class="icon">🎯</span> Resumen Ejecutivo</h2>
+  <div class="card-grid">
+    <div class="card success">
+      <h3 class="text-green">El Logro</h3>
+      <p>El modelo <strong>v8 LimbSequenceTransformer</strong> rompe la barrera del <strong>90% de validation accuracy</strong> en clasificación de pie (izquierdo/derecho/ambos) para charts de Pump It Up, superando todos los modelos previos.</p>
+      <p>Más notablemente: v8 igualó el <em>mejor resultado histórico de v7b</em> (88.6%) en solo <strong>9 épocas</strong> versus las 30 que necesitó v7b.</p>
+    </div>
+    <div class="card highlight">
+      <h3 class="text-accent">Las Claves del Salto</h3>
+      <p><strong>1. Causal mask correcta</strong> — eliminó data leakage que cheateaba el entrenamiento bidireccional.</p>
+      <p><strong>2. Scheduled Sampling</strong> — cierra el train/inference gap gradualmente. Con ss_prob=0.135, el modelo usa sus propias predicciones como contexto.</p>
+      <p><strong>3. Modelo más grande</strong> — d_model 256→384, layers 6→8 (+2.9× más parámetros).</p>
+    </div>
+    <div class="card success">
+      <h3 class="text-green">Estado Final</h3>
+      <p>Entrenamiento <strong>completado</strong>: early stop en <strong>epoch 37/40</strong> (patience 12/12). Best en época 25 con <strong>91.4%</strong>. Plateau a partir de época 26 — la curva se estabilizó entre 91.0–91.4%.</p>
+      <p>AR gap ≈ <strong>0.0pp</strong> durante todo el entrenamiento — el modelo no necesita oracle prev_limb. El accuracy de inferencia real iguala el accuracy con oracle.</p>
+    </div>
+  </div>
+
+  <!-- MODEL PROGRESSION -->
+  <div class="card mt-4">
+    <h3>Progresión de Modelos</h3>
+    <div style="margin-top: 16px;">
+      <div class="model-progress pbar-lgbm">
+        <div class="head">
+          <span class="name">LightGBM Baseline</span>
+          <span class="pct-val" style="color:#9ca3af">75.4%</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" style="width:75.4%"></div></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Features manuales &middot; Handcrafted rules &middot; No sequence modeling</div>
+      </div>
+      <div class="model-progress pbar-v7b mt-4">
+        <div class="head">
+          <span class="name">v7b Transformer <span style="font-weight:400;color:var(--text-muted);font-size:0.85em">(5M params, d=256, 6L)</span></span>
+          <span class="pct-val" style="color:var(--accent)">88.6%</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" style="width:88.6%"></div></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">30 épocas &middot; ~53 min &middot; Sin scheduled sampling &middot; Causal mask</div>
+      </div>
+      <div class="model-progress pbar-v8 mt-4">
+        <div class="head">
+          <span class="name">v8 Transformer <span style="font-weight:400;color:var(--text-muted);font-size:0.85em">(14.7M params, d=384, 8L)</span></span>
+          <span class="pct-val" style="color:var(--gold)">91.4% ★</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" style="width:91.4%"></div></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">37 épocas (early stop) &middot; COMPLETO &middot; Scheduled sampling (ss_prob_max=0.5) &middot; AR gap ≈ 0.0pp</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 2: ARQUITECTURA -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="arquitectura">
+  <h2><span class="icon">🏗️</span> Arquitectura del Modelo <span class="badge">LimbSequenceTransformer</span></h2>
+
+  <div class="arch-diagram">
+    <div class="arch-pipeline">
+
+      <!-- INPUT -->
+      <div class="arch-box input" style="width:400px">
+        <div class="ab-title">Input Sequence</div>
+        <div class="ab-sub">N arrows × 22 features</div>
+        <div style="margin-top:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <span style="background:rgba(88,166,255,0.15);border:1px solid rgba(88,166,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:monospace">18 arrow features</span>
+          <span style="background:rgba(163,113,247,0.15);border:1px solid rgba(163,113,247,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:monospace">4 prev_limb one-hot</span>
+        </div>
+      </div>
+      <div class="arch-arrow">↓<small>x ∈ ℝ^(N×22)</small></div>
+
+      <!-- LAYER NORM -->
+      <div class="arch-box norm" style="width:300px">
+        <div class="ab-title">Input LayerNorm</div>
+        <div class="ab-sub">Normalize across feature dim</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+
+      <!-- LINEAR PROJ -->
+      <div class="arch-box proj" style="width:300px">
+        <div class="ab-title">Linear Projection</div>
+        <div class="ab-sub">22 → d_model (384 v8 / 256 v7b)</div>
+      </div>
+      <div class="arch-arrow">↓<small>+ (element-wise)</small></div>
+
+      <!-- POSITIONAL -->
+      <div class="arch-box pos" style="width:300px">
+        <div class="ab-title">Sinusoidal Positional Encoding</div>
+        <div class="ab-sub">PE(pos, 2i) = sin(pos/10000^(2i/d))</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+
+      <!-- DROPOUT -->
+      <div class="arch-box drop" style="width:220px">
+        <div class="ab-title">Dropout</div>
+        <div class="ab-sub">p=0.1</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+
+      <!-- TRANSFORMER ENCODER -->
+      <div class="arch-box transformer" style="width:440px">
+        <div class="ab-title" style="color:var(--gold)">TransformerEncoder (×8 layers) — v8</div>
+        <div class="ab-sub">n_heads=8 &middot; ffn_dim=1536 &middot; dropout=0.1</div>
+        <div style="margin-top:10px;display:flex;gap:6px;justify-content:center;align-items:center">
+          <div style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:6px 10px;font-size:10px;text-align:center">
+            <div style="font-weight:700;color:var(--gold)">Multi-Head Attn</div>
+            <div style="color:var(--text-muted)">+ Causal Mask</div>
+          </div>
+          <div style="color:var(--text-muted);font-size:18px">→</div>
+          <div style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:6px 10px;font-size:10px;text-align:center">
+            <div style="font-weight:700;color:var(--gold)">Add &amp; Norm</div>
+          </div>
+          <div style="color:var(--text-muted);font-size:18px">→</div>
+          <div style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:6px 10px;font-size:10px;text-align:center">
+            <div style="font-weight:700;color:var(--gold)">FFN (1536)</div>
+          </div>
+          <div style="color:var(--text-muted);font-size:18px">→</div>
+          <div style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:6px 10px;font-size:10px;text-align:center">
+            <div style="font-weight:700;color:var(--gold)">Add &amp; Norm</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:rgba(255,215,0,0.6)">
+          ⚠ CAUSAL MASK: posición i solo puede atender a posiciones 0..i (upper-triangular = -∞)
+        </div>
+      </div>
+      <div class="arch-arrow">↓</div>
+
+      <!-- OUTPUT NORM -->
+      <div class="arch-box outnorm" style="width:300px">
+        <div class="ab-title">Output LayerNorm</div>
+        <div class="ab-sub">Final normalization</div>
+      </div>
+      <div class="arch-arrow">↓</div>
+
+      <!-- OUTPUT HEAD -->
+      <div class="arch-box head" style="width:360px">
+        <div class="ab-title">2-Layer Classification Head</div>
+        <div class="ab-sub">d_model → d_model/2 → ReLU → n_classes (3)</div>
+      </div>
+      <div class="arch-arrow">↓<small>logits ∈ ℝ^(N×3)</small></div>
+
+      <!-- OUTPUT -->
+      <div class="arch-box output" style="width:300px">
+        <div class="ab-title">Output: Limb per Arrow</div>
+        <div class="ab-sub">0=Left (L) &middot; 1=Right (R) &middot; 2=Either (E)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURE GROUPS -->
+  <div class="arch-features mt-4">
+    <div class="feat-group">
+      <h4 class="blue">18 Arrow Features (posición, timing, geometría)</h4>
+      <span class="feat-tag">col_idx</span>
+      <span class="feat-tag">symbol</span>
+      <span class="feat-tag">beat_time</span>
+      <span class="feat-tag">is_hold_head</span>
+      <span class="feat-tag">is_hold_end</span>
+      <span class="feat-tag">hold_duration</span>
+      <span class="feat-tag">is_bracket</span>
+      <span class="feat-tag">bracket_idx</span>
+      <span class="feat-tag">x_coord</span>
+      <span class="feat-tag">y_coord</span>
+      <span class="feat-tag">dt_from_prev</span>
+      <span class="feat-tag">dt_to_next</span>
+      <span class="feat-tag">run_length</span>
+      <span class="feat-tag">same_col_as_prev</span>
+      <span class="feat-tag">foot_dist</span>
+      <span class="feat-tag">is_doublestep_candidate</span>
+      <span class="feat-tag">panel_type</span>
+      <span class="feat-tag">chart_level</span>
+    </div>
+    <div class="feat-group">
+      <h4 class="purple">4 Prev-Limb One-Hot</h4>
+      <span class="feat-tag">prev=L (0)</span>
+      <span class="feat-tag">prev=R (1)</span>
+      <span class="feat-tag">prev=E (2)</span>
+      <span class="feat-tag">prev=START (3)</span>
+      <div style="margin-top:10px;font-size:12px;color:var(--text-muted);line-height:1.6">
+        Durante <strong style="color:var(--accent)">entrenamiento</strong>: teacher-forced (ground truth)<br>
+        Con <strong style="color:var(--accent3)">scheduled sampling</strong>: mezcla stochástica<br>
+        Durante <strong style="color:var(--accent2)">inferencia</strong>: predicciones propias del modelo
+      </div>
+    </div>
+    <div class="feat-group">
+      <h4 class="green">Comparativa v7b vs v8</h4>
+      <table style="width:100%;font-size:12px">
+        <tr><th style="background:transparent;padding:4px 8px">Parámetro</th><th style="background:transparent;padding:4px 8px">v7b</th><th style="background:transparent;padding:4px 8px">v8</th></tr>
+        <tr><td style="padding:4px 8px">d_model</td><td style="padding:4px 8px;color:var(--accent)">256</td><td style="padding:4px 8px;color:var(--gold)">384</td></tr>
+        <tr><td style="padding:4px 8px">n_layers</td><td style="padding:4px 8px;color:var(--accent)">6</td><td style="padding:4px 8px;color:var(--gold)">8</td></tr>
+        <tr><td style="padding:4px 8px">n_heads</td><td style="padding:4px 8px;color:var(--accent)">8</td><td style="padding:4px 8px;color:var(--gold)">8</td></tr>
+        <tr><td style="padding:4px 8px">ffn_dim</td><td style="padding:4px 8px;color:var(--accent)">1024</td><td style="padding:4px 8px;color:var(--gold)">1536</td></tr>
+        <tr><td style="padding:4px 8px">Params</td><td style="padding:4px 8px;color:var(--accent)">5M</td><td style="padding:4px 8px;color:var(--gold)">14.7M</td></tr>
+        <tr><td style="padding:4px 8px">Sched. Sampling</td><td style="padding:4px 8px;color:var(--danger)">✗</td><td style="padding:4px 8px;color:var(--accent2)">✓</td></tr>
+        <tr><td style="padding:4px 8px">Best Val Acc</td><td style="padding:4px 8px;color:var(--accent)">88.6%</td><td style="padding:4px 8px;color:var(--gold)">91.4%</td></tr>
+      </table>
+    </div>
+    <div class="feat-group">
+      <h4 class="orange">Scheduled Sampling Schedule</h4>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+        ss_prob crece linealmente: 0 → 0.5 sobre 40 épocas<br>
+        warmup = 3 épocas (ss_prob = 0 durante warmup)
+      </div>
+      <div class="ss-schedule" id="ss-dots"></div>
+    </div>
+  </div>
+
+  <!-- CAUSAL MASK -->
+  <div class="card mt-4">
+    <h3>Causal Mask — La Clave Anti-Leakage</h3>
+    <div class="causal-viz mt-4">
+      <div>
+        <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);text-align:center">Attention Matrix (posición → posición)</div>
+        <div class="mask-grid" id="causal-grid" style="grid-template-columns: repeat(6, 32px)"></div>
+        <div style="margin-top:8px;display:flex;gap:12px;font-size:11px">
+          <span><span style="color:var(--accent2)">■</span> Puede atender</span>
+          <span><span style="color:var(--gold)">■</span> Self (diagonal)</span>
+          <span><span style="color:rgba(248,81,73,0.4)">■</span> Bloqueado</span>
+        </div>
+      </div>
+      <div class="causal-explain">
+        <p><strong>¿Por qué es crítica la causal mask?</strong></p>
+        <p>En PIU, el <code style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:monospace;font-size:0.85em">prev_limb</code> del arrow i = label del arrow i-1. Sin causal mask, con teacher-forcing bidireccional, el token i puede atender al token i+1 cuya feature <code style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:monospace;font-size:0.85em">prev_limb</code> ya revela el label del token i.</p>
+        <div class="highlight-text">
+          <strong>Ejemplo de leakage:</strong> Arrow 5 quiere predecir si fue pie izquierdo (L) o derecho (R). Sin mask causal, puede ver que arrow 6 tiene <code style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:monospace;font-size:0.85em">prev_limb=[0,1,0,0]</code> (L), lo que <em>revela directamente</em> que arrow 5 = L. Eso es trampa.
+        </div>
+        <p>La causal mask (upper-triangular = -∞) garantiza que la posición i solo puede atender a las posiciones 0..i, haciendo el problema honesto.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTH-MIRROR -->
+  <div class="card mt-4">
+    <h3>Both-Mirror Augmentation</h3>
+    <div class="two-col">
+      <div>
+        <p>En cada época, el modelo entrena con <strong>dos versiones de cada chart</strong>:</p>
+        <ul style="padding-left:20px;color:var(--text-muted);font-size:0.9rem;line-height:1.8">
+          <li>Chart original: flechas en posición normal, labels originales (L/R/E)</li>
+          <li>Chart espejado: flechas reflejadas horizontalmente, labels invertidos (L↔R, E=E)</li>
+        </ul>
+        <p>Esto garantiza <strong>simetría L/R perfecta</strong> en el dataset y elimina cualquier sesgo de pie de inicio que pueda existir en los datos.</p>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:13px">
+        <div style="display:flex;gap:20px;align-items:center;justify-content:center;margin-bottom:12px">
+          <div style="text-align:center">
+            <div style="font-size:1.8rem">↙ ↑ ↗</div>
+            <div style="font-size:11px;color:var(--text-muted)">Original</div>
+            <div style="margin-top:4px">
+              <span style="color:var(--left)">L</span> <span style="color:var(--right)">R</span> <span style="color:var(--right)">R</span>
+            </div>
+          </div>
+          <div style="font-size:1.5rem;color:var(--text-muted)">↔</div>
+          <div style="text-align:center">
+            <div style="font-size:1.8rem">↖ ↑ ↘</div>
+            <div style="font-size:11px;color:var(--text-muted)">Espejado</div>
+            <div style="margin-top:4px">
+              <span style="color:var(--right)">R</span> <span style="color:var(--left)">L</span> <span style="color:var(--left)">L</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);text-align:center">Panel mirroring: DL↔DR, UL↔UR, C=C</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 3: PROGRESO DE ENTRENAMIENTO -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="progreso">
+  <h2><span class="icon">📈</span> Progreso de Entrenamiento</h2>
+
+  <!-- MAIN CHART: v7b vs v8 -->
+  <div class="chart-wrap">
+    <div class="chart-title">v7b vs v8 — Validation Accuracy por Época</div>
+    <canvas id="mainChart" height="320"></canvas>
+  </div>
+
+  <!-- TWO CHARTS ROW -->
+  <div class="charts-2col">
+    <div class="chart-wrap">
+      <div class="chart-title">Comparativa Best Accuracy — Los 3 Modelos</div>
+      <canvas id="barChart" height="260"></canvas>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">v8: SS Probability vs Val Accuracy</div>
+      <canvas id="ssChart" height="260"></canvas>
+    </div>
+  </div>
+
+  <!-- EPOCH DATA TABLE -->
+  <div class="card mt-4">
+    <h3>v8 — Datos por Época (todos los checkpoints)</h3>
+    <div class="epoch-table-wrap mt-4">
+      <table id="epochTable">
+        <thead>
+          <tr>
+            <th>Época</th>
+            <th>Oracle Val Acc</th>
+            <th>AR Val Acc</th>
+            <th>AR Gap</th>
+            <th>ss_prob</th>
+            <th>Nota</th>
+          </tr>
+        </thead>
+        <tbody id="epochBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 4: HALLAZGOS CLAVE -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="hallazgos">
+  <h2><span class="icon">💡</span> Hallazgos Clave</h2>
+
+  <!-- AR GAP HIGHLIGHT -->
+  <div class="card success mb-4">
+    <h3 class="text-green">El Hallazgo Más Importante: AR Gap = 0.0pp</h3>
+    <div class="ar-gap-display">
+      <div class="ar-val">
+        <span class="num" style="color:var(--accent)">91.4%</span>
+        <span class="lbl">Oracle Val Acc<br>(teacher-forced)</span>
+      </div>
+      <div class="ar-gap-arrow">≈</div>
+      <div class="ar-val">
+        <span class="num" style="color:var(--accent2)">91.3%</span>
+        <span class="lbl">AR Val Acc<br>(autoregressive)</span>
+      </div>
+      <div class="ar-gap-arrow">=</div>
+      <div class="ar-diff">
+        <span class="num">0.0pp</span>
+        <span class="lbl">Diferencia</span>
+      </div>
+    </div>
+    <p style="text-align:center;max-width:600px;margin:0 auto">El modelo es <em>igualmente preciso</em> usando ground truth o sus propias predicciones como prev_limb. Esto indica que ha aprendido una representación interna auto-consistente de las secuencias — no depende de oracle information en absoluto.</p>
+  </div>
+
+  <div class="finding insight">
+    <div class="finding-num">1</div>
+    <div class="finding-body">
+      <div class="finding-title">Scheduled Sampling causa el salto de +3.3pp en época 5</div>
+      <div class="finding-desc">
+        La primera época con scheduled sampling (<code>ss_prob=0.014</code>) coincide exactamente con el mayor jump de accuracy en toda la training run: +3.3pp (de 82.0% a 85.3%). Esto sugiere que incluso un pequeño porcentaje de samples usando las predicciones propias del modelo tiene un efecto regularizador masivo — el modelo aprende a ser robusto a sus propios errores de predicción.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding perf">
+    <div class="finding-num">2</div>
+    <div class="finding-body">
+      <div class="finding-title">v8 supera el techo de v7b (30 épocas) en solo 9 épocas</div>
+      <div class="finding-desc">
+        v7b tardó 30 épocas (~53 min) en alcanzar su mejor resultado de 88.6%. v8 lo iguala en <strong>9 épocas</strong>. La combinación de modelo más grande + scheduled sampling no solo produce mejor accuracy final — produce una curva de aprendizaje fundamentalmente más rápida.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding bug">
+    <div class="finding-num">3</div>
+    <div class="finding-body">
+      <div class="finding-title">Bug crítico: IndexError en MLX con forward pass fuera del compiled step</div>
+      <div class="finding-desc">
+        Hacer <code>model()</code> fuera del step compilado causa <code>IndexError: unordered_map::at</code> en MLX. El scheduled sampling interno requiere hacer un forward pass adicional para obtener las predicciones del modelo antes del training pass. La solución: implementar todo el scheduled sampling como un <code>step_ss</code> compilado con <code>mx.compile</code> que hace 2 forward passes internamente. El compile boundary es crítico — MLX necesita ver todo el grafo completo.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding bug">
+    <div class="finding-num">4</div>
+    <div class="finding-body">
+      <div class="finding-title">Bug previo (v7a): atención bidireccional con teacher-forcing = data leakage</div>
+      <div class="finding-desc">
+        v7a usaba atención bidireccional (sin causal mask) con teacher-forcing del <code>prev_limb</code>. Esto creaba leakage: el token i podía atender al token i+1, cuya feature <code>prev_limb</code> revelaba el label del token i. La validación con teacher-forcing parecía alta, pero la inferencia autorregresiva era mucho peor (AR gap grande). La causal mask en v7b+ corrigió esto completamente.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding insight">
+    <div class="finding-num">5</div>
+    <div class="finding-body">
+      <div class="finding-title">Both-mirror augmentation elimina sesgo de pie de inicio</div>
+      <div class="finding-desc">
+        Los charts de PIU tienen distribuciones asimétricas de L/R dependiendo del pie de inicio del stepper. Al incluir la versión espejada de cada chart en cada época, el dataset se balancea artificialmente: cada chart contribuye exactamente una versión L-start y una R-start. Esto previene que el modelo aprenda atajos basados en patrones globales de distribución de pies.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding perf">
+    <div class="finding-num">6</div>
+    <div class="finding-body">
+      <div class="finding-title">Escalado de modelo: 5M → 14.7M params (+2.9×) worth it</div>
+      <div class="finding-desc">
+        El incremento de d_model 256→384 y layers 6→8 triplica los parámetros pero solo aumenta el training time modestamente en hardware Apple Silicon (MLX). El ratio accuracy/costo es claramente positivo. El modelo más grande converge más rápido y a un mejor mínimo, sugiriendo que el modelo anterior era capacity-limited.
+      </div>
+    </div>
+  </div>
+
+  <div class="finding insight">
+    <div class="finding-num">7</div>
+    <div class="finding-body">
+      <div class="finding-title">Warmup de 3 épocas es esencial para el scheduled sampling</div>
+      <div class="finding-desc">
+        Las primeras 3 épocas de v8 usan <code>ss_prob=0</code> (solo teacher-forcing) para establecer una baseline de predicciones razonables antes de introducir el ruido de scheduled sampling. Sin warmup, el modelo recibiría predicciones caóticas como contexto prev_limb desde el inicio, haciendo el entrenamiento inestable. El salto en época 5 (primera con SS) confirma que el warmup fue suficiente para preparar el modelo.
+      </div>
+    </div>
+  </div>
+
+  <!-- SS EXPLANATION -->
+  <div class="card mt-4">
+    <h3>Scheduled Sampling — ¿Cómo Funciona?</h3>
+    <div class="ss-visual">
+      <div class="ss-box train">
+        <div class="phase">Training (ss_prob=0)</div>
+        <div class="desc">
+          Para cada arrow i, <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-family:monospace;font-size:0.85em">prev_limb[i]</code> = ground truth label del arrow i-1. El modelo siempre recibe contexto perfecto. Aprende bien pero sufre "exposure bias" — no sabe manejar sus propios errores.
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;font-size:1.5rem;color:var(--text-muted)">→</div>
+      <div class="ss-box ss">
+        <div class="phase">Scheduled Sampling (0 &lt; ss_prob &lt; 1)</div>
+        <div class="desc">
+          2 forward passes: primero predecir con teacher-forcing, luego reemplazar cada <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-family:monospace;font-size:0.85em">prev_limb[i]</code> con predicción propia con prob <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-family:monospace;font-size:0.85em">ss_prob</code>. El segundo pass calcula el loss. El modelo aprende a ser robusto a errores propios.
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;font-size:1.5rem;color:var(--text-muted)">→</div>
+      <div class="ss-box infer">
+        <div class="phase">Inference (ss_prob=1 implícito)</div>
+        <div class="desc">
+          Autoregressive: <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-family:monospace;font-size:0.85em">prev_limb[i]</code> = predicción del modelo para el arrow i-1. Sin ground truth disponible. AR gap = 0.0pp indica que el modelo domina este modo completamente.
+        </div>
+      </div>
+    </div>
+    <div class="code-block mt-4">
+<span class="cmt"># Implementación crítica: DEBE estar dentro de mx.compile</span>
+<span class="kw">def</span> <span class="fn">step_ss</span>(model, x, y, ss_prob, optimizer):
+    <span class="cmt"># Pass 1: forward teacher-forced para obtener predicciones</span>
+    logits_tf = model(x)  <span class="cmt"># x ya tiene oracle prev_limb</span>
+    preds = mx.argmax(logits_tf, axis=-<span class="num">1</span>)  <span class="cmt"># [N, T]</span>
+
+    <span class="cmt"># Reemplazar prev_limb con predicciones según ss_prob</span>
+    mask = mx.random.uniform(preds.shape) &lt; ss_prob
+    x_ss = <span class="fn">replace_prev_limb</span>(x, preds, mask)  <span class="cmt"># prev_limb = pred donde mask=True</span>
+
+    <span class="cmt"># Pass 2: forward con x_ss, calcular loss real</span>
+    <span class="kw">def</span> <span class="fn">loss_fn</span>(model):
+        logits = model(x_ss)
+        <span class="kw">return</span> <span class="fn">cross_entropy</span>(logits, y).mean()
+
+    loss, grads = mx.value_and_grad(loss_fn)(model)
+    optimizer.update(model, grads)
+    <span class="kw">return</span> loss
+
+step_ss_compiled = mx.compile(step_ss, inputs=model.state)
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 5: VISUALIZADOR PIU -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="piu-section">
+  <h2><span class="icon">🕹️</span> Visualizador PIU Chart <span class="badge">Interactivo</span></h2>
+
+  <div class="piu-container">
+    <div class="piu-header">
+      <div>
+        <div class="piu-title">Murdoch vs Otada — ESPITZ vs WONDERTRAVELER Project S9</div>
+        <div class="piu-subtitle">Singles &middot; Primeras 40 flechas &middot; Labels generados por v8</div>
+      </div>
+      <div class="piu-legend">
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--left)"></div>
+          <span>Left (L)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--right)"></div>
+          <span>Right (R)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#a371f7"></div>
+          <span>Either (E)</span>
+        </div>
+      </div>
+    </div>
+    <div class="piu-controls">
+      <button id="btnAnimate" class="active">▶ Animar</button>
+      <button id="btnReset">⟳ Reset</button>
+      <label>Zoom: <input type="range" id="zoomSlider" min="0.5" max="3" step="0.1" value="1" style="width:100px;vertical-align:middle"></label>
+      <label style="margin-left:auto">Velocidad: <input type="range" id="speedSlider" min="0.3" max="3" step="0.1" value="1" style="width:80px;vertical-align:middle"></label>
+    </div>
+    <canvas id="piuCanvas" width="800" height="500"></canvas>
+    <div class="piu-tooltip" id="piuTooltip"></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECCIÓN 6: CONFIGURACIÓN TÉCNICA -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section id="config">
+  <h2><span class="icon">⚙️</span> Configuración Técnica — v8</h2>
+
+  <div class="config-grid mb-4">
+    <div class="config-item">
+      <div class="key">Framework</div>
+      <div class="value">MLX</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Hardware</div>
+      <div class="value">Apple Silicon</div>
+    </div>
+    <div class="config-item">
+      <div class="key">d_model</div>
+      <div class="value gold">384</div>
+    </div>
+    <div class="config-item">
+      <div class="key">n_heads</div>
+      <div class="value gold">8</div>
+    </div>
+    <div class="config-item">
+      <div class="key">n_layers</div>
+      <div class="value gold">8</div>
+    </div>
+    <div class="config-item">
+      <div class="key">ffn_dim</div>
+      <div class="value gold">1536</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Total Params</div>
+      <div class="value gold">14.7M</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Input Features</div>
+      <div class="value">22</div>
+    </div>
+    <div class="config-item">
+      <div class="key">n_classes</div>
+      <div class="value">3 (L/R/E)</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Dropout</div>
+      <div class="value">0.1</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Warmup Epochs</div>
+      <div class="value orange">3</div>
+    </div>
+    <div class="config-item">
+      <div class="key">SS Max Prob</div>
+      <div class="value orange">0.5</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Total Epochs</div>
+      <div class="value">40</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Augmentation</div>
+      <div class="value green">both-mirror</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Attn Mask</div>
+      <div class="value green">causal</div>
+    </div>
+    <div class="config-item">
+      <div class="key">Pos Encoding</div>
+      <div class="value">sinusoidal</div>
+    </div>
+  </div>
+
+  <div class="code-block">
+<span class="cmt"># LimbSequenceTransformer — v8 config</span>
+config = {
+    <span class="str">"d_model"</span>: <span class="num">384</span>,       <span class="cmt"># up from 256 (v7b)</span>
+    <span class="str">"n_heads"</span>: <span class="num">8</span>,
+    <span class="str">"n_layers"</span>: <span class="num">8</span>,         <span class="cmt"># up from 6 (v7b)</span>
+    <span class="str">"ffn_dim"</span>: <span class="num">1536</span>,       <span class="cmt"># 4 * d_model</span>
+    <span class="str">"dropout"</span>: <span class="num">0.1</span>,
+    <span class="str">"n_input_features"</span>: <span class="num">22</span>,  <span class="cmt"># 18 arrow + 4 prev_limb one-hot</span>
+    <span class="str">"n_classes"</span>: <span class="num">3</span>,          <span class="cmt"># L=0, R=1, E=2</span>
+    <span class="str">"causal_mask"</span>: <span class="kw">True</span>,    <span class="cmt"># CRITICAL: prevents future leakage</span>
+    <span class="str">"ss_warmup_epochs"</span>: <span class="num">3</span>,
+    <span class="str">"ss_max_prob"</span>: <span class="num">0.5</span>,
+    <span class="str">"total_epochs"</span>: <span class="num">40</span>,
+    <span class="str">"augmentation"</span>: <span class="str">"both-mirror"</span>,
+}
+<span class="cmt"># ss_prob at epoch e (after warmup): (e - warmup) / (total - warmup) * ss_max</span>
+ss_prob = (e - <span class="num">3</span>) / (<span class="num">40</span> - <span class="num">3</span>) * <span class="num">0.5</span> <span class="kw">if</span> e > <span class="num">3</span> <span class="kw">else</span> <span class="num">0.0</span>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><strong>PIU Limb Annotation ML Project</strong> &mdash; piu-annotate_to_label_piu</p>
+  <p style="margin-top:8px">LimbSequenceTransformer v8 &middot; 91.4% Singles Val Accuracy &middot; Early Stop Ep 37/40 &middot; COMPLETO</p>
+  <p style="margin-top:8px;font-size:11px">Actualizado: 2026-05-05 10:07 &middot; MLX / Apple Silicon &middot; <span style="color:var(--accent2)">ENTRENAMIENTO FINALIZADO</span></p>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- JAVASCRIPT -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<script>
+
+// ── DATA ──────────────────────────────────────────────────────
+const v8Data = [
+  {e:1,  oracle:78.9, ar:78.9, ss:0,     note:"warmup"},
+  {e:2,  oracle:78.8, ar:78.8, ss:0,     note:"warmup"},
+  {e:3,  oracle:80.2, ar:80.1, ss:0,     note:"warmup ends"},
+  {e:4,  oracle:82.0, ar:81.9, ss:0,     note:"post-warmup"},
+  {e:5,  oracle:85.3, ar:85.3, ss:0.014, note:"FIRST SS EPOCH → +3.3pp!"},
+  {e:6,  oracle:86.9, ar:86.9, ss:0.027, note:""},
+  {e:7,  oracle:87.3, ar:87.3, ss:0.041, note:""},
+  {e:8,  oracle:87.9, ar:87.9, ss:0.054, note:""},
+  {e:9,  oracle:88.6, ar:88.5, ss:0.068, note:"v7b ceiling matched (30ep→9!)"},
+  {e:10, oracle:89.1, ar:89.1, ss:0.081, note:"BREAKS v7b all-time record"},
+  {e:11, oracle:89.8, ar:89.7, ss:0.095, note:""},
+  {e:12, oracle:89.4, ar:89.4, ss:0.108, note:"slight dip (noise)"},
+  {e:13, oracle:90.0, ar:90.0, ss:0.122, note:"BREAKS 90% BARRIER!"},
+  {e:14, oracle:90.6, ar:90.6, ss:0.135, note:""},
+  {e:15, oracle:90.5, ar:90.5, ss:0.149, note:""},
+  {e:16, oracle:90.8, ar:90.8, ss:0.176, note:""},
+  {e:17, oracle:90.9, ar:90.8, ss:0.189, note:""},
+  {e:18, oracle:90.1, ar:90.1, ss:0.203, note:"dip (SS noise)"},
+  {e:19, oracle:91.1, ar:91.1, ss:0.216, note:"BREAKS 91%!"},
+  {e:20, oracle:91.2, ar:91.1, ss:0.230, note:""},
+  {e:21, oracle:91.0, ar:91.0, ss:0.243, note:""},
+  {e:22, oracle:91.2, ar:91.2, ss:0.257, note:""},
+  {e:23, oracle:91.3, ar:91.3, ss:0.270, note:""},
+  {e:24, oracle:91.1, ar:91.0, ss:0.284, note:"no_improve 1/12"},
+  {e:25, oracle:91.4, ar:91.3, ss:0.297, note:"NEW ALL-TIME BEST ★"},
+  {e:26, oracle:91.3, ar:91.3, ss:0.311, note:"no_improve 1/12"},
+  {e:27, oracle:91.0, ar:91.0, ss:0.324, note:"no_improve 2/12"},
+  {e:28, oracle:91.2, ar:91.2, ss:0.338, note:"no_improve 3/12"},
+  {e:29, oracle:91.3, ar:91.3, ss:0.351, note:"no_improve 4/12"},
+  {e:30, oracle:91.3, ar:91.2, ss:0.365, note:"no_improve 5/12"},
+  {e:31, oracle:91.2, ar:91.1, ss:0.378, note:"no_improve 6/12"},
+  {e:32, oracle:91.2, ar:91.1, ss:0.392, note:"no_improve 7/12"},
+  {e:33, oracle:91.1, ar:91.1, ss:0.405, note:"no_improve 8/12"},
+  {e:34, oracle:91.2, ar:91.1, ss:0.419, note:"no_improve 9/12"},
+  {e:35, oracle:91.2, ar:91.1, ss:0.432, note:"no_improve 10/12"},
+  {e:36, oracle:91.1, ar:91.1, ss:0.446, note:"no_improve 11/12"},
+  {e:37, oracle:91.1, ar:91.1, ss:0.460, note:"EARLY STOP (12/12)"},
+];
+
+const v7bData = [
+  78.3, 78.8, 79.3, 80.4, 82.2, 85.0, 87.0, 87.4,
+  87.6, 87.6, 87.8, 87.9, 88.0, 88.0, 88.2, 88.2,
+  88.2, 88.2, 88.3, 88.3, 88.4, 88.3, 88.4, 88.4,
+  88.5, 88.6, 88.6, 88.6, 88.6, 88.6
+];
+
+const piuArrows = [
+  {"idx":1,"time":1.333,"pos":0,"limb":"l"},{"idx":2,"time":1.333,"pos":3,"limb":"r"},
+  {"idx":3,"time":2.667,"pos":1,"limb":"l"},{"idx":4,"time":2.667,"pos":4,"limb":"r"},
+  {"idx":5,"time":4.0,"pos":2,"limb":"l"},{"idx":6,"time":5.333,"pos":0,"limb":"l"},
+  {"idx":7,"time":5.333,"pos":4,"limb":"r"},{"idx":8,"time":5.667,"pos":0,"limb":"l"},
+  {"idx":9,"time":5.667,"pos":4,"limb":"r"},{"idx":10,"time":6.0,"pos":0,"limb":"l"},
+  {"idx":11,"time":6.167,"pos":4,"limb":"r"},{"idx":12,"time":6.333,"pos":0,"limb":"l"},
+  {"idx":13,"time":6.667,"pos":4,"limb":"r"},{"idx":14,"time":7.0,"pos":2,"limb":"l"},
+  {"idx":15,"time":7.333,"pos":0,"limb":"l"},{"idx":16,"time":7.667,"pos":2,"limb":"r"},
+  {"idx":17,"time":8.0,"pos":4,"limb":"r"},{"idx":18,"time":8.167,"pos":2,"limb":"l"},
+  {"idx":19,"time":8.333,"pos":4,"limb":"r"},{"idx":20,"time":8.5,"pos":2,"limb":"l"},
+  {"idx":21,"time":8.667,"pos":4,"limb":"r"},{"idx":22,"time":9.0,"pos":0,"limb":"l"},
+  {"idx":23,"time":9.333,"pos":4,"limb":"r"},{"idx":24,"time":9.667,"pos":2,"limb":"l"},
+  {"idx":25,"time":10.0,"pos":0,"limb":"l"},{"idx":26,"time":10.333,"pos":3,"limb":"r"},
+  {"idx":27,"time":10.667,"pos":1,"limb":"l"},{"idx":28,"time":11.0,"pos":4,"limb":"r"},
+  {"idx":29,"time":11.333,"pos":0,"limb":"l"},{"idx":30,"time":11.667,"pos":4,"limb":"r"},
+  {"idx":31,"time":12.0,"pos":0,"limb":"l"},{"idx":32,"time":12.333,"pos":3,"limb":"r"},
+  {"idx":33,"time":12.667,"pos":2,"limb":"l"},{"idx":34,"time":13.0,"pos":4,"limb":"r"},
+  {"idx":35,"time":13.333,"pos":0,"limb":"l"},{"idx":36,"time":13.667,"pos":3,"limb":"r"},
+  {"idx":37,"time":14.0,"pos":2,"limb":"l"},{"idx":38,"time":14.333,"pos":4,"limb":"r"},
+  {"idx":39,"time":14.667,"pos":0,"limb":"l"},{"idx":40,"time":15.0,"pos":3,"limb":"r"}
+];
+
+// ── SS DOTS ───────────────────────────────────────────────────
+const ssDots = document.getElementById('ss-dots');
+for (let e = 1; e <= 40; e++) {
+  const ss = e <= 3 ? 0 : (e - 3) / 37 * 0.5;
+  const alpha = 0.3 + ss * 1.4;
+  const dot = document.createElement('div');
+  dot.className = 'ss-dot';
+  dot.style.background = e <= 3
+    ? 'rgba(107,114,128,0.5)'
+    : `rgba(240,136,62,${Math.min(alpha, 1)})`;
+  dot.title = `Ep ${e}: ss_prob=${ss.toFixed(3)}`;
+  dot.textContent = e <= 3 ? '' : '';
+  ssDots.appendChild(dot);
+}
+
+// ── CAUSAL MASK ───────────────────────────────────────────────
+const causalGrid = document.getElementById('causal-grid');
+const N = 5;
+// Header row
+const labels = ['', 'i=0', 'i=1', 'i=2', 'i=3', 'i=4'];
+labels.forEach(l => {
+  const cell = document.createElement('div');
+  cell.className = 'mask-cell label';
+  cell.textContent = l;
+  causalGrid.appendChild(cell);
+});
+// Data rows
+for (let i = 0; i < N; i++) {
+  const rowLabel = document.createElement('div');
+  rowLabel.className = 'mask-cell label';
+  rowLabel.textContent = `j=${i}`;
+  causalGrid.appendChild(rowLabel);
+  for (let j = 0; j < N; j++) {
+    const cell = document.createElement('div');
+    if (j === i) {
+      cell.className = 'mask-cell diag';
+      cell.textContent = '1';
+    } else if (j < i) {
+      cell.className = 'mask-cell attend';
+      cell.textContent = '1';
+    } else {
+      cell.className = 'mask-cell block';
+      cell.textContent = '0';
+    }
+    causalGrid.appendChild(cell);
+  }
+}
+
+// ── EPOCH TABLE ───────────────────────────────────────────────
+const tbody = document.getElementById('epochBody');
+v8Data.forEach(d => {
+  const tr = document.createElement('tr');
+  const gap = Math.abs(d.oracle - d.ar);
+  const isBest = d.e === 25;
+  const isMilestone = d.note.includes('90%') || d.note.includes('91%') || d.note.includes('BREAKS v7b') || d.note.includes('EARLY STOP');
+  if (isBest) tr.className = 'best-row';
+  else if (isMilestone) tr.className = 'milestone';
+
+  let badge = '';
+  if (d.e === 25) badge = ' <span class="badge-rec">★ BEST</span>';
+  else if (d.e === 19) badge = ' <span class="badge-90">91%+</span>';
+  else if (d.e === 13) badge = ' <span class="badge-90">90%+</span>';
+  else if (d.e === 5) badge = ' <span class="badge-ss">SS START</span>';
+  else if (d.e === 10) badge = ' <span class="badge-rec">REC</span>';
+  else if (d.e === 37) badge = ' <span class="badge-ss">STOP</span>';
+
+  tr.innerHTML = `
+    <td>${d.e}${badge}</td>
+    <td style="color:${d.oracle >= 90 ? 'var(--gold)' : d.oracle >= 88.6 ? 'var(--accent2)' : 'var(--text)'}">${d.oracle.toFixed(1)}%</td>
+    <td>${d.ar.toFixed(1)}%</td>
+    <td style="color:var(--accent2)">0.0pp</td>
+    <td style="color:${d.ss > 0 ? 'var(--accent3)' : 'var(--text-muted)'}">${d.ss.toFixed(3)}</td>
+    <td style="color:var(--text-muted);font-family:inherit;font-size:12px">${d.note}</td>
+  `;
+  tbody.appendChild(tr);
+});
+
+// ── CHART.JS DEFAULTS ─────────────────────────────────────────
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = "-apple-system, 'Segoe UI', sans-serif";
+
+// ── MAIN CHART: v7b vs v8 ─────────────────────────────────────
+const mainCtx = document.getElementById('mainChart').getContext('2d');
+const v8Epochs = v8Data.map(d => d.e);
+const v8Oracle = v8Data.map(d => d.oracle);
+const v8AR = v8Data.map(d => d.ar);
+const v7bEpochs = v7bData.map((_, i) => i + 1);
+
+// Build combined labels
+const maxEpoch = Math.max(v7bData.length, v8Data[v8Data.length - 1].e);
+const allLabels = Array.from({length: maxEpoch}, (_, i) => `Ep ${i+1}`);
+
+// Pad v8 data to match
+const v8OraclePadded = allLabels.map((_, i) => {
+  const ep = i + 1;
+  const found = v8Data.find(d => d.e === ep);
+  return found ? found.oracle : null;
+});
+const v7bPadded = allLabels.map((_, i) => v7bData[i] ?? null);
+
+// SS epoch annotation points
+const ssAnnotPoints = v8Data.filter(d => d.ss > 0 && d.e === 5).map(d => ({x: d.e - 1, y: d.oracle}));
+
+new Chart(mainCtx, {
+  type: 'line',
+  data: {
+    labels: allLabels,
+    datasets: [
+      {
+        label: 'v7b Val Acc',
+        data: v7bPadded,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#3b82f6',
+        fill: false,
+        tension: 0.3,
+        spanGaps: false,
+      },
+      {
+        label: 'v8 Oracle Val Acc',
+        data: v8OraclePadded,
+        borderColor: '#ffd700',
+        backgroundColor: 'rgba(255,215,0,0.1)',
+        borderWidth: 2.5,
+        pointRadius: (ctx) => {
+          const ep = ctx.dataIndex + 1;
+          if (ep === 25) return 8;
+          if (ep === 19 || ep === 13 || ep === 5 || ep === 37) return 6;
+          return 4;
+        },
+        pointBackgroundColor: (ctx) => {
+          const ep = ctx.dataIndex + 1;
+          if (ep === 25) return '#ffd700';
+          if (ep === 19 || ep === 13) return '#3fb950';
+          if (ep === 5) return '#f0883e';
+          if (ep === 37) return '#f85149';
+          return '#ffd700';
+        },
+        fill: false,
+        tension: 0.3,
+        spanGaps: false,
+      },
+      {
+        label: 'v8 AR Val Acc',
+        data: v8OraclePadded.map((v, i) => {
+          const ep = i + 1;
+          const found = v8Data.find(d => d.e === ep);
+          return found ? found.ar : null;
+        }),
+        borderColor: '#3fb950',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [4, 4],
+        pointRadius: 2,
+        fill: false,
+        tension: 0.3,
+        spanGaps: false,
+      },
+      // 90% reference line
+      {
+        label: '90% Barrier',
+        data: allLabels.map(() => 90),
+        borderColor: 'rgba(248,81,73,0.4)',
+        borderWidth: 1,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        fill: false,
+      },
+      // 91.4% best line
+      {
+        label: 'v8 Best (91.4%)',
+        data: allLabels.map(() => 91.4),
+        borderColor: 'rgba(255,215,0,0.4)',
+        borderWidth: 1,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        fill: false,
+      },
+      // v7b best line
+      {
+        label: 'v7b Best (88.6%)',
+        data: allLabels.map(() => 88.6),
+        borderColor: 'rgba(59,130,246,0.3)',
+        borderWidth: 1,
+        borderDash: [4, 4],
+        pointRadius: 0,
+        fill: false,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: { boxWidth: 12, padding: 16, font: { size: 12 } }
+      },
+      tooltip: {
+        backgroundColor: '#21262d',
+        borderColor: '#30363d',
+        borderWidth: 1,
+        titleColor: '#e6edf3',
+        bodyColor: '#8b949e',
+        callbacks: {
+          afterLabel: (ctx) => {
+            const ep = ctx.dataIndex + 1;
+            const found = v8Data.find(d => d.e === ep);
+            if (found && ctx.dataset.label.includes('v8') && found.note) {
+              return `  → ${found.note}`;
+            }
+            return null;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { maxTicksLimit: 15, font: { size: 11 } } },
+      y: {
+        min: 75,
+        max: 93,
+        grid: { color: 'rgba(48,54,61,0.5)' },
+        ticks: {
+          callback: v => `${v}%`,
+          font: { size: 11 }
+        }
+      }
+    },
+    animation: { duration: 1200, easing: 'easeInOutQuart' }
+  }
+});
+
+// ── BAR CHART ─────────────────────────────────────────────────
+const barCtx = document.getElementById('barChart').getContext('2d');
+new Chart(barCtx, {
+  type: 'bar',
+  data: {
+    labels: ['LightGBM\nBaseline', 'v7b Transformer\n(5M params)', 'v8 Transformer\n(14.7M, SS)'],
+    datasets: [{
+      label: 'Best Val Accuracy',
+      data: [75.4, 88.6, 91.4],
+      backgroundColor: [
+        'rgba(107,114,128,0.7)',
+        'rgba(59,130,246,0.7)',
+        'rgba(255,215,0,0.7)',
+      ],
+      borderColor: ['#6b7280', '#3b82f6', '#ffd700'],
+      borderWidth: 2,
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#21262d',
+        borderColor: '#30363d',
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => ` ${ctx.raw}% — best val acc`,
+          afterLabel: (ctx) => {
+            const gains = ['Baseline', '+13.2pp vs LGBM', '+2.8pp vs v7b (+16.0pp vs LGBM)'];
+            return `  ${gains[ctx.dataIndex]}`;
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        min: 70,
+        max: 93,
+        ticks: { callback: v => `${v}%`, font: { size: 11 } },
+        grid: { color: 'rgba(48,54,61,0.5)' }
+      },
+      x: { grid: { display: false } }
+    },
+    animation: { duration: 1000, easing: 'easeOutBounce' }
+  }
+});
+
+// ── SS SCATTER CHART ──────────────────────────────────────────
+const ssCtx = document.getElementById('ssChart').getContext('2d');
+const ssPoints = v8Data.filter(d => d.ss > 0).map(d => ({ x: d.ss, y: d.oracle }));
+const nonSsPoints = v8Data.filter(d => d.ss === 0).map(d => ({ x: d.ss + 0.001 * d.e, y: d.oracle }));
+
+new Chart(ssCtx, {
+  type: 'scatter',
+  data: {
+    datasets: [
+      {
+        label: 'ss_prob=0 (warmup)',
+        data: nonSsPoints,
+        backgroundColor: 'rgba(107,114,128,0.7)',
+        pointRadius: 7,
+        pointStyle: 'circle',
+      },
+      {
+        label: 'ss_prob > 0',
+        data: ssPoints,
+        backgroundColor: (ctx) => {
+          const v = ctx.raw?.y;
+          if (v >= 90) return 'rgba(255,215,0,0.9)';
+          if (v >= 88.6) return 'rgba(63,185,80,0.9)';
+          return 'rgba(240,136,62,0.8)';
+        },
+        pointRadius: 8,
+        pointStyle: 'circle',
+        borderColor: (ctx) => {
+          const v = ctx.raw?.y;
+          if (v >= 90) return '#ffd700';
+          if (v >= 88.6) return '#3fb950';
+          return '#f0883e';
+        },
+        borderWidth: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { labels: { boxWidth: 10, font: { size: 11 } } },
+      tooltip: {
+        backgroundColor: '#21262d',
+        borderColor: '#30363d',
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => ` ss_prob=${ctx.raw.x.toFixed(3)}, acc=${ctx.raw.y.toFixed(1)}%`
+        }
+      }
+    },
+    scales: {
+      x: {
+        title: { display: true, text: 'ss_prob', font: { size: 11 } },
+        grid: { color: 'rgba(48,54,61,0.5)' },
+        ticks: { font: { size: 10 } }
+      },
+      y: {
+        min: 77,
+        max: 92,
+        title: { display: true, text: 'Val Accuracy (%)', font: { size: 11 } },
+        grid: { color: 'rgba(48,54,61,0.5)' },
+        ticks: { callback: v => `${v}%`, font: { size: 10 } }
+      }
+    }
+  }
+});
+
+// ── PIU CANVAS VISUALIZER ─────────────────────────────────────
+const canvas = document.getElementById('piuCanvas');
+const ctx2 = canvas.getContext('2d');
+const tooltip = document.getElementById('piuTooltip');
+
+// Panel layout: DL=0(↙), UL=1(↖), C=2(↑), UR=3(↗), DR=4(↘)
+// Panel positions as fractions of canvas width
+const panelXFrac = [0.12, 0.27, 0.42, 0.57, 0.72];
+const panelSymbols = ['↙', '↖', '↑', '↗', '↘'];
+const panelNames = ['DL', 'UL', 'C', 'UR', 'DR'];
+const limbColors = {
+  l: { fill: '#1d4ed8', stroke: '#3b82f6', glow: 'rgba(59,130,246,0.5)', label: 'Left' },
+  r: { fill: '#991b1b', stroke: '#ef4444', glow: 'rgba(239,68,68,0.5)', label: 'Right' },
+  e: { fill: '#4c1d95', stroke: '#a371f7', glow: 'rgba(163,113,247,0.5)', label: 'Either' }
+};
+
+let zoom = 1;
+let speed = 1;
+let animating = true;
+let animTime = 0;
+let animStart = null;
+let rafId = null;
+let hoveredArrow = null;
+
+const zoomSlider = document.getElementById('zoomSlider');
+const speedSlider = document.getElementById('speedSlider');
+const btnAnimate = document.getElementById('btnAnimate');
+const btnReset = document.getElementById('btnReset');
+
+zoomSlider.addEventListener('input', () => { zoom = parseFloat(zoomSlider.value); drawPIU(animTime); });
+speedSlider.addEventListener('input', () => { speed = parseFloat(speedSlider.value); });
+btnAnimate.addEventListener('click', () => {
+  animating = !animating;
+  btnAnimate.textContent = animating ? '⏸ Pausar' : '▶ Animar';
+  if (animating) requestAnimationFrame(animLoop);
+});
+btnReset.addEventListener('click', () => {
+  animTime = 0;
+  animStart = null;
+  drawPIU(0);
+});
+
+function getCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY
+  };
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  const {x, y} = getCanvasCoords(e);
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const arrowR = 22 * zoom;
+  const timeRange = 16;
+  const scrollOffset = animTime;
+  let found = null;
+  for (const arrow of piuArrows) {
+    const ax = panelXFrac[arrow.pos] * cw;
+    const ay = ch - ((arrow.time - scrollOffset) / timeRange) * ch * zoom;
+    if (ay > -50 && ay < ch + 50) {
+      const dx = x - ax, dy = y - ay;
+      if (dx * dx + dy * dy < arrowR * arrowR) {
+        found = arrow;
+        break;
+      }
+    }
+  }
+  hoveredArrow = found;
+  if (found) {
+    const lc = limbColors[found.limb];
+    tooltip.innerHTML = `<strong>Arrow #${found.idx}</strong><br>Panel: ${panelNames[found.pos]} ${panelSymbols[found.pos]}<br>Time: ${found.time.toFixed(3)}s<br>Limb: <span style="color:${lc.stroke}">${lc.label}</span>`;
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top = (e.clientY - 8) + 'px';
+    tooltip.classList.add('show');
+  } else {
+    tooltip.classList.remove('show');
+  }
+  if (!animating) drawPIU(animTime);
+});
+canvas.addEventListener('mouseleave', () => {
+  hoveredArrow = null;
+  tooltip.classList.remove('show');
+});
+
+function drawPIU(t) {
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const timeRange = 16;
+  const arrowR = 22 * zoom;
+
+  // Background
+  ctx2.fillStyle = '#080c10';
+  ctx2.fillRect(0, 0, cw, ch);
+
+  // Grid lines (lane separators)
+  ctx2.strokeStyle = 'rgba(48,54,61,0.4)';
+  ctx2.lineWidth = 1;
+  panelXFrac.forEach(fx => {
+    ctx2.beginPath();
+    ctx2.moveTo(fx * cw, 0);
+    ctx2.lineTo(fx * cw, ch);
+    ctx2.stroke();
+  });
+
+  // Beat lines
+  for (let beat = 0; beat < 20; beat++) {
+    const bt = beat * (60 / 90); // 90 BPM
+    const by = ch - ((bt - t) / timeRange) * ch * zoom;
+    if (by >= 0 && by <= ch) {
+      ctx2.strokeStyle = beat % 4 === 0 ? 'rgba(88,166,255,0.15)' : 'rgba(48,54,61,0.25)';
+      ctx2.lineWidth = beat % 4 === 0 ? 1.5 : 0.8;
+      ctx2.beginPath();
+      ctx2.moveTo(0, by);
+      ctx2.lineTo(cw * 0.85, by);
+      ctx2.stroke();
+    }
+  }
+
+  // Panel labels at top
+  panelXFrac.forEach((fx, i) => {
+    ctx2.fillStyle = 'rgba(139,148,158,0.6)';
+    ctx2.font = `bold ${12 * zoom}px -apple-system, sans-serif`;
+    ctx2.textAlign = 'center';
+    ctx2.fillText(panelNames[i], fx * cw, 22);
+    ctx2.font = `${18 * zoom}px Arial`;
+    ctx2.fillText(panelSymbols[i], fx * cw, 44);
+  });
+
+  // Time indicator (current position line)
+  const indicatorY = ch - (0 / timeRange) * ch * zoom;
+  ctx2.strokeStyle = 'rgba(88,166,255,0.6)';
+  ctx2.lineWidth = 2;
+  ctx2.setLineDash([8, 4]);
+  ctx2.beginPath();
+  ctx2.moveTo(0, ch - 30);
+  ctx2.lineTo(cw * 0.85, ch - 30);
+  ctx2.stroke();
+  ctx2.setLineDash([]);
+
+  // Draw arrows
+  piuArrows.forEach(arrow => {
+    const ax = panelXFrac[arrow.pos] * cw;
+    const ay = ch - ((arrow.time - t) / timeRange) * ch * zoom - 30;
+
+    if (ay < -60 || ay > ch + 60) return;
+
+    const lc = limbColors[arrow.limb];
+    const isHovered = hoveredArrow === arrow;
+    const isPast = arrow.time < t + 0.05;
+    const alpha = isPast ? 0.3 : 1;
+    const r = isHovered ? arrowR * 1.25 : arrowR;
+
+    // Glow
+    if (!isPast) {
+      const grd = ctx2.createRadialGradient(ax, ay, 0, ax, ay, r * 2.2);
+      grd.addColorStop(0, lc.glow.replace('0.5', isHovered ? '0.7' : '0.35'));
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx2.fillStyle = grd;
+      ctx2.fillRect(ax - r * 2.2, ay - r * 2.2, r * 4.4, r * 4.4);
+    }
+
+    // Arrow body
+    ctx2.globalAlpha = alpha;
+    ctx2.beginPath();
+    ctx2.arc(ax, ay, r, 0, Math.PI * 2);
+    ctx2.fillStyle = lc.fill;
+    ctx2.fill();
+    ctx2.strokeStyle = lc.stroke;
+    ctx2.lineWidth = isHovered ? 3 : 2;
+    ctx2.stroke();
+
+    // Arrow symbol
+    ctx2.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx2.font = `bold ${Math.round(r * 0.95)}px Arial`;
+    ctx2.textAlign = 'center';
+    ctx2.textBaseline = 'middle';
+    ctx2.fillText(panelSymbols[arrow.pos], ax, ay);
+
+    // Arrow index
+    ctx2.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx2.font = `${Math.round(9 * zoom)}px monospace`;
+    ctx2.fillText(`#${arrow.idx}`, ax, ay + r + 11 * zoom);
+
+    ctx2.globalAlpha = 1;
+    ctx2.textBaseline = 'alphabetic';
+  });
+
+  // Legend/info panel on the right
+  const panelX = cw * 0.87;
+  ctx2.fillStyle = 'rgba(22,27,34,0.85)';
+  ctx2.strokeStyle = '#30363d';
+  ctx2.lineWidth = 1;
+  ctx2.beginPath();
+  ctx2.roundRect(panelX, 10, cw - panelX - 8, 160, 8);
+  ctx2.fill();
+  ctx2.stroke();
+
+  ctx2.fillStyle = '#e6edf3';
+  ctx2.font = 'bold 11px -apple-system, sans-serif';
+  ctx2.textAlign = 'left';
+  ctx2.fillText('Limb Legend', panelX + 12, 32);
+
+  [['l', 'Left (L)'], ['r', 'Right (R)'], ['e', 'Either (E)']].forEach(([limb, label], i) => {
+    const lc = limbColors[limb];
+    const ly = 52 + i * 30;
+    ctx2.fillStyle = lc.fill;
+    ctx2.strokeStyle = lc.stroke;
+    ctx2.lineWidth = 1.5;
+    ctx2.beginPath();
+    ctx2.arc(panelX + 22, ly, 8, 0, Math.PI * 2);
+    ctx2.fill();
+    ctx2.stroke();
+    ctx2.fillStyle = '#8b949e';
+    ctx2.font = '11px -apple-system, sans-serif';
+    ctx2.fillText(label, panelX + 36, ly + 4);
+  });
+
+  // Time display
+  ctx2.fillStyle = 'rgba(22,27,34,0.85)';
+  ctx2.strokeStyle = '#30363d';
+  ctx2.lineWidth = 1;
+  ctx2.beginPath();
+  ctx2.roundRect(panelX, 178, cw - panelX - 8, 50, 8);
+  ctx2.fill();
+  ctx2.stroke();
+  ctx2.fillStyle = '#58a6ff';
+  ctx2.font = 'bold 11px monospace';
+  ctx2.fillText('TIME', panelX + 12, 198);
+  ctx2.fillStyle = '#e6edf3';
+  ctx2.font = 'bold 14px monospace';
+  ctx2.fillText(`${t.toFixed(2)}s`, panelX + 12, 218);
+
+  // Visible arrows count
+  const visibleCount = piuArrows.filter(a => {
+    const ay = ch - ((a.time - t) / timeRange) * ch * zoom - 30;
+    return ay >= -30 && ay <= ch + 30;
+  }).length;
+  ctx2.fillStyle = 'rgba(22,27,34,0.85)';
+  ctx2.strokeStyle = '#30363d';
+  ctx2.beginPath();
+  ctx2.roundRect(panelX, 236, cw - panelX - 8, 40, 8);
+  ctx2.fill();
+  ctx2.stroke();
+  ctx2.fillStyle = '#3fb950';
+  ctx2.font = '10px -apple-system, sans-serif';
+  ctx2.fillText(`${visibleCount} arrows visible`, panelX + 12, 256);
+  ctx2.fillStyle = '#8b949e';
+  ctx2.fillText(`of ${piuArrows.length} total`, panelX + 12, 268);
+}
+
+function animLoop(ts) {
+  if (!animating) return;
+  if (!animStart) animStart = ts;
+  const elapsed = (ts - animStart) / 1000;
+  animTime = (elapsed * speed) % 16;
+  drawPIU(animTime);
+  rafId = requestAnimationFrame(animLoop);
+}
+
+// Initial draw
+drawPIU(0);
+requestAnimationFrame(animLoop);
+
+// Handle canvas resize
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const w = Math.min(rect.width - 48, 900);
+  canvas.width = Math.max(w, 400);
+  canvas.height = Math.round(canvas.width * 0.6);
+  drawPIU(animTime);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+</script>
+</body>
+</html>

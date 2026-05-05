@@ -1,34 +1,35 @@
-Loading cached:   0%|          | 0/90 [00:00<?, ?it/s]Loading cached: 100%|██████████| 90/90 [00:00<00:00, 6538.28it/s]
-2026-05-04 14:32:05.433 | INFO     | __main__:load_chunks_from_files:71 - Loaded 97 chunks (38/90 mirrored)
-Loading cached:   0%|          | 0/10 [00:00<?, ?it/s]Loading cached: 100%|██████████| 10/10 [00:00<00:00, 7326.30it/s]
-2026-05-04 14:32:05.434 | INFO     | __main__:load_chunks_from_files:71 - Loaded 10 chunks (0/10 mirrored)
-2026-05-04 14:32:05.434 | INFO     | __main__:train:216 - Train chunks: 97, Val chunks: 10
-2026-05-04 14:32:05.434 | INFO     | __main__:train:222 - SMOKE TEST: Using smaller dummy model.
-2026-05-04 14:32:05.438 | INFO     | __main__:train:230 - Model built
-2026-05-04 14:32:05.438 | INFO     | __main__:train:239 - === Epoch 1/2 starting ===
-Training: 0it [00:00, ?it/s]2026-05-04 14:32:06.952 | INFO     | __main__:train_epoch:177 -   step 0, loss=1.2402
-Training: 1it [00:01,  1.51s/it]Training: 3it [00:01,  2.18it/s]Training: 5it [00:01,  3.88it/s]Training: 7it [00:01,  5.66it/s]                                2026-05-04 14:32:07.447 | INFO     | __main__:train:246 - Epoch 1/2: train_loss=1.2484, val_loss=1.2545, val_acc=49.2%, lr=0.00e+00
-2026-05-04 14:32:07.449 | SUCCESS  | __main__:train:254 - New best model saved: acc=49.2%
-2026-05-04 14:32:07.449 | INFO     | __main__:train:239 - === Epoch 2/2 starting ===
-Training: 0it [00:00, ?it/s]2026-05-04 14:32:07.498 | INFO     | __main__:train_epoch:177 -   step 0, loss=1.2353
-Training: 3it [00:00, 24.89it/s]Training: 6it [00:00, 27.09it/s]                                2026-05-04 14:32:07.704 | INFO     | __main__:train:246 - Epoch 2/2: train_loss=0.9961, val_loss=0.7796, val_acc=63.2%, lr=3.00e-04
-2026-05-04 14:32:07.705 | SUCCESS  | __main__:train:254 - New best model saved: acc=63.2%
-2026-05-04 14:32:07.705 | SUCCESS  | __main__:train:258 - Training complete. Best acc: 63.2%
-        2.59 real         0.34 user         0.33 sys
-           130187264  maximum resident set size
+Loading training data:   0%|          | 0/90 [00:00<?, ?it/s]Loading training data: 100%|██████████| 90/90 [00:00<00:00, 1802.99it/s]
+Loading val data:   0%|          | 0/10 [00:00<?, ?it/s]Loading val data: 100%|██████████| 10/10 [00:00<00:00, 2473.49it/s]
+2026-05-04 18:31:17.409 | INFO     | __main__:train:242 - Train files: 90, Val chunks: 10
+2026-05-04 18:31:17.410 | INFO     | __main__:compute_class_weights:108 - Class counts: [22636 22665   366], weights: [0.047 0.047 2.906]
+2026-05-04 18:31:17.410 | INFO     | __main__:train:250 - SMOKE TEST: Using smaller model.
+2026-05-04 18:31:17.414 | INFO     | __main__:train:263 - Model: 135,655 parameters
+2026-05-04 18:31:17.414 | INFO     | __main__:train:290 - ~6 steps/epoch, 12 total, 12 warmup
+2026-05-04 18:31:17.414 | INFO     | __main__:train:297 - === Epoch 1/2 starting ===
+2026-05-04 18:31:17.415 | INFO     | __main__:train:302 -   97 chunks (42/90 mirrored)
+Training: 0it [00:00, ?it/s]2026-05-04 18:31:18.033 | INFO     | __main__:train:327 -   step 0, loss=0.0561, lr=0.00e+00
+Training: 1it [00:00,  1.62it/s]Training: 4it [00:00,  6.35it/s]Training: 6it [00:00,  8.37it/s]                                2026-05-04 18:31:18.385 | INFO     | __main__:train:336 - Epoch 1/2: train_loss=0.0844, val_loss=1.1775, val_acc=4.3%, lr=1.75e-04
+2026-05-04 18:31:18.387 | SUCCESS  | __main__:train:356 - New best saved: val_acc=4.3%
+2026-05-04 18:31:18.387 | INFO     | __main__:train:297 - === Epoch 2/2 starting ===
+2026-05-04 18:31:18.387 | INFO     | __main__:train:302 -   97 chunks (55/90 mirrored)
+Training: 0it [00:00, ?it/s]Training: 5it [00:00, 33.96it/s]                                2026-05-04 18:31:18.587 | INFO     | __main__:train:336 - Epoch 2/2: train_loss=0.0817, val_loss=1.0812, val_acc=39.6%, lr=3.00e-04
+2026-05-04 18:31:18.587 | SUCCESS  | __main__:train:356 - New best saved: val_acc=39.6%
+2026-05-04 18:31:18.588 | SUCCESS  | __main__:train:366 - Training complete. Best val_acc: 39.6%
+        1.37 real         0.19 user         0.24 sys
+           110903296  maximum resident set size
                    0  average shared memory size
                    0  average unshared data size
                    0  average unshared stack size
-               16853  page reclaims
-                 353  page faults
+               10939  page reclaims
+                 370  page faults
                    0  swaps
                    0  block input operations
                    0  block output operations
                    0  messages sent
                    0  messages received
                    0  signals received
-                  23  voluntary context switches
-               12156  involuntary context switches
-          6659000627  instructions retired
-          2761746971  cycles elapsed
-          6777734272  peak memory footprint
+                 388  voluntary context switches
+                3856  involuntary context switches
+          4619290049  instructions retired
+          1834880827  cycles elapsed
+          6635619288  peak memory footprint

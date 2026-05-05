@@ -156,6 +156,13 @@ class ChartStructFeaturizer:
         empty_pt = np.zeros(len(pt_array[0]))
         return np.array([empty_pt]*context_len + pt_array + [empty_pt]*context_len)
 
+    def get_raw_features(self) -> NDArray:
+        """ Returns the exact features used for MLX sequence transformer without flattening sliding window. """
+        x_raw = np.stack(self.pt_array)
+        cmf = np.tile(self.chart_metadata_features, (len(x_raw), 1))
+        x = np.concatenate([x_raw, cmf], axis=1)
+        return x
+
     @functools.lru_cache
     def featurize_arrows_with_context(self) -> NDArray:
         """ For N arrows with D feature dims, constructs prediction input

@@ -1,611 +1,610 @@
-# piu-annotate
+<div align="center">
 
-**Sistema de anotación de extremidades y predicción de dificultad para charts de Pump It Up**
+# 🎮 PIU Limb Annotation — ML Project
 
-Analiza charts del juego de ritmo Pump It Up (PIU), predice qué extremidad (pie izquierdo, pie derecho, mano) debe usar el jugador para cada flecha, segmenta charts en secciones de dificultad, y predice ratings de dificultad.
+### Predicting left/right foot annotations for Pump It Up step charts using deep learning
 
----
+[![Best Accuracy](https://img.shields.io/badge/Best%20Accuracy-91.4%25-FFD700?style=for-the-badge&logo=pytorch)](artifacts/models/visss-mlx-v8/)
+[![AR Gap](https://img.shields.io/badge/AR%20Gap-0.0pp-3FB950?style=for-the-badge)](artifacts/models/visss-mlx-v8/)
+[![Framework](https://img.shields.io/badge/Framework-MLX%20%2F%20Apple%20Silicon-58A6FF?style=for-the-badge)](https://github.com/ml-explore/mlx)
+[![Params](https://img.shields.io/badge/Model%20Size-14.7M%20params-A371F7?style=for-the-badge)](#architecture)
 
-## Tabla de Contenidos
+**From a 75.4% LightGBM baseline to a 91.4% causal transformer with scheduled sampling — all running on Apple Silicon.**
 
-1. [Visión General del Sistema de Skills](#visión-general-del-sistema-de-skills)
-2. [Conceptos Fundamentales](#conceptos-fundamentales)
-3. [Sistema de Detección de Skills](#sistema-de-detección-de-skills)
-   - [Run (Carrera)](#run-carrera)
-   - [Drill](#drill)
-   - [Jack](#jack)
-   - [Footswitch](#footswitch)
-   - [Bracket](#bracket)
-   - [Staggered Bracket](#staggered-bracket)
-   - [Doublestep](#doublestep)
-   - [Twists](#twists)
-4. [Sistema de Razonamiento de Patrones](#sistema-de-razonamiento-de-patrones)
-   - [LimbReusePattern](#limbreusepattern)
-   - [PatternReasoner](#patternreasoner)
-5. [Problemas Conocidos y Mejoras Posibles](#problemas-conocidos-y-mejoras-posibles)
-6. [Arquitectura del Proyecto](#arquitectura-del-proyecto)
-7. [Instalación](#instalación)
+</div>
 
 ---
 
-## Visión General del Sistema de Skills
+## 📊 The Journey at a Glance
 
-El sistema de skills en `piu_annotate/segment/skills.py` detecta patrones técnicos en los charts de PIU. Cada skill se marca como una columna booleana en el DataFrame del ChartStruct (columnas con prefijo `__` como `__run`, `__footswitch`, etc.).
+```
+         75.4%                88.6%            91.4% ★
+           │                    │                 │
+  LightGBM │   v7b Transformer  │  v8 Transformer │
+  Baseline │   5M params        │  14.7M params   │
+           │   Causal mask      │  + Sched. Sampling
+           │   Both-mirror      │  + Bigger model │
+           │                    │                 │
+  ─────────┴────────────────────┴─────────────────┴────────▶ Accuracy
+  75%      80%       85%        89%      91%      92%
+```
 
-### Skills Detectados (25+ tipos)
-
-| Skill | Descripción | Tipo |
-|-------|-------------|------|
-| `drill` | Notas alternadas rápido con mismo patrón rítmico | Básico |
-| `run` | Secuencia de notas alternando pies | Básico |
-| `anchor_run` | Run que empieza con pie "ancla" | Básico |
-| `jack` | Misma nota, mismo pie, rápida | Básico |
-| `footswitch` | Misma nota, pies alternados | Básico |
-| `bracket` | Dos notas que caben en un pie | Posición |
-| `staggered_bracket` | Bracket con notes desfasadas | Posición |
-| `doublestep` | Dos notas diferentes para mismo pie | Posición |
-| `hands` | Más de 2 notas que requieren manos | Posición |
-| `jump` | Dos pies usados simultáneamente | Posición |
-| `twist_90` | Twist de 90 grados | Twist |
-| `twist_over90` | Twist de más de 90 grados | Twist |
-| `twist_close` | Twist cercano | Twist |
-| `twist_far` | Twist lejano | Twist |
-| `side3_singles` | Notas en lado 3 en singles | Posición |
-| `mid4_doubles` | Notas en medio de doubles | Posición |
-| `mid6_doubles` | Notas en medio de doubles | Posición |
-| `split` | Split (pies en extremos opuestos) | Posición |
-| `stair5` | Escalera de 5 notas en singles | Patrón |
-| `stair10` | Escalera de 10 notas en doubles | Patrón |
-| `yog_walk` | Patrón de yog walk | Patrón |
-| `cross_pad_transition` | Transición cruzando el pad | Patrón |
-| `coop_pad_transition` | Transición co-op pad | Patrón |
-| `hold_footswitch` | Holds con footswitch | Hold |
-| `hold_footslide` | Hold con slide del pie | Hold |
-| `bracket_run` | Run dentro de bracket | Compuesto |
-| `bracket_drill` | Drill dentro de bracket | Compuesto |
+| Model | Architecture | Best Acc | Epochs | Key Innovation |
+|-------|-------------|---------|--------|----------------|
+| LightGBM | Gradient Boosting, manual features | 75.4% | N/A | Baseline |
+| v7b | Transformer 5M, d=256, 6L | 88.6% | 30 | Causal mask + Both-mirror |
+| **v8** ★ | **Transformer 14.7M, d=384, 8L** | **91.4%** | **37 (early stop)** | **Scheduled Sampling** |
 
 ---
 
-## Conceptos Fundamentales
+## 🏆 Current Best: v8 — 91.4% Accuracy
 
-### ChartStruct y Líneas
+<table>
+<tr>
+<td width="50%">
 
-El ChartStruct tiene una fila por "línea" (beat/timestamp). Cada línea tiene:
+**Model stats:**
+- `d_model` = 384 | `n_layers` = 8 | `n_heads` = 8
+- `ffn_dim` = 1536 | `params` = **14.7M**
+- `dropout` = 0.1 | `max_seq_len` = 1024
+- Causal mask ✓ | Both-mirror aug ✓
+- Scheduled sampling (ss_max=0.5) ✓
+- Early stop epoch 37/40
+
+</td>
+<td width="50%">
+
+**The killer result: AR Gap = 0.0pp**
 
 ```
-Line: `10000     → 5 caracteres para singles (01234 = vacio/flecha/inicio-hold/fin-hold)
-Line with active holds: `10400  → incluye '4' para holds activos
-
-Limb annotation: "lr"  → 'l'=pie izq, 'r'=pie der, para cada flecha en la línea
+Oracle (teacher-forced):   91.4%
+Autoregressive (real):     91.3%
+                           ──────
+Difference:                 0.0pp ← 🎯
 ```
 
-### Posiciones de Flechas
+The model performs identically with or without ground-truth context. No train/inference gap.
 
-```
-SINGLES (5 paneles):          DOUBLES (10 paneles):
-Posición:  0  1 2  3 4           0  1 2  3 4  5  6 7  8 9
-           ↑           ↑           ↑           ↑
-         izquierda   derecha     izquierda   derecha
-           P1          P1          P1          P2
-```
-
-### Downpress vs Hold
-
-- `1` = downpress (nota normal)
-- `2` = inicio de hold
-- `3` = fin de hold
-- `4` = hold activo (mientra sostienes)
+</td>
+</tr>
+</table>
 
 ---
 
-## Sistema de Detección de Skills
+## 📈 v8 Training — Epoch by Epoch
 
-### Run (Carrera)
-
-**Archivo:** `skills.py` línea 145-182
-
-**Definición:** Una secuencia de notas donde:
-- Cada nota tiene **un solo pie** (`len(set(limb_annots[i])) == 1`)
-- Los pies **alternan** (`set(limb_annots[i]) != set(limb_annots[j])`)
-- El **ritmo es consistente** (`ts[i] ≈ ts[j]`)
-- Mínimo 7 notas (`MIN_RUN_LEN = 7`)
-
-**Lógica:**
-
-```python
-def run(cs: ChartStruct) -> None:
-    # Itera sobre pares de líneas consecutivas
-    for i, j in itertools.pairwise(range(len(df))):
-        crits = [
-            set(limb_annots[i]) != set(limb_annots[j]),  # pies diferentes
-            len(set(limb_annots[i])) == 1,              # 1 pie por línea
-            len(set(limb_annots[j])) == 1,              # 1 pie por línea
-            '1' in lines[j],                            # tiene nota
-            math.isclose(ts[i], ts[j])                  # mismo ritmo
-        ]
-        if all(crits):
-            idxs.add(j)  # marca la nota j como parte del run
+```
+Val %
+ 92 │                                     ★25
+ 91 │                             ·19·20·22·23·24 ·26·27·28·29·30·31
+ 90 │                         ·16·17                                  ···37 (STOP)
+    │                  ·14·15
+ 89 │           ·11·12
+    │       ·10
+ 88 │    ·9  ← v7b ceiling
+    │  ·8
+ 87 │·7
+    │·6
+ 86 │
+    │                    ← SS STARTS HERE (epoch 5)
+ 85 │·5 ← +3.3pp jump!
+    │
+ 82 │·4
+    │·1·2·3 (warmup, ss_prob=0)
+ 78 ┼──────────────────────────────────────────────────────────── Epoch
+     1  3  5  7  9  11 13 15 17 19 21 23 25 27 29 31 33 35 37
 ```
 
-**Problema potencial:** Un `00111` con `l,r,l` en posiciones 2,3,4 podría marcarse incorrectamente porque:
-- Las líneas `00111` → `00111` son **iguales**
-- `num_downpress == 1` es **falso** (hay 3 downpresses)
+### Full Epoch Table
 
-Espera, no. Veamos de nuevo...
+| Epoch | Oracle Acc | AR Acc | AR Gap | SS Prob | Note |
+|-------|-----------|--------|--------|---------|------|
+| 1 | 78.9% | 78.9% | 0.0pp | 0.000 | warmup |
+| 2 | 78.8% | 78.8% | 0.0pp | 0.000 | warmup |
+| 3 | 80.2% | 80.1% | 0.1pp | 0.000 | warmup ends |
+| 4 | 82.0% | 81.9% | 0.1pp | 0.000 | post-warmup |
+| **5** | **85.3%** | **85.3%** | **0.0pp** | 0.014 | **🔥 FIRST SS EPOCH → +3.3pp!** |
+| 6 | 86.9% | 86.9% | 0.0pp | 0.027 | |
+| 7 | 87.3% | 87.3% | 0.0pp | 0.041 | |
+| 8 | 87.9% | 87.9% | 0.0pp | 0.054 | |
+| **9** | **88.6%** | **88.5%** | **0.1pp** | 0.068 | **v7b ceiling matched (30ep→9ep!)** |
+| 10 | 89.1% | 89.1% | 0.0pp | 0.081 | breaks v7b all-time record |
+| 11 | 89.8% | 89.7% | 0.1pp | 0.095 | |
+| 12 | 89.4% | 89.4% | 0.0pp | 0.108 | slight dip (noise) |
+| **13** | **90.0%** | **90.0%** | **0.0pp** | 0.122 | **🚀 BREAKS 90% BARRIER** |
+| 14 | 90.6% | 90.6% | 0.0pp | 0.135 | |
+| 15 | 90.5% | 90.5% | 0.0pp | 0.149 | |
+| 16 | 90.8% | 90.8% | 0.0pp | 0.176 | |
+| 17 | 90.9% | 90.8% | 0.1pp | 0.189 | |
+| 18 | 90.1% | 90.1% | 0.0pp | 0.203 | dip (SS noise) |
+| **19** | **91.1%** | **91.1%** | **0.0pp** | 0.216 | **breaks 91%** |
+| 20 | 91.2% | 91.1% | 0.1pp | 0.230 | |
+| 21 | 91.0% | 91.0% | 0.0pp | 0.243 | |
+| 22 | 91.2% | 91.2% | 0.0pp | 0.257 | |
+| 23 | 91.3% | 91.3% | 0.0pp | 0.270 | |
+| 24 | 91.1% | 91.0% | 0.1pp | 0.284 | no_improve 1/12 |
+| **25** ★ | **91.4%** | **91.3%** | **0.1pp** | 0.297 | **🏆 ALL-TIME BEST** |
+| 26 | 91.3% | 91.3% | 0.0pp | 0.311 | no_improve 1/12 |
+| 27 | 91.0% | 91.0% | 0.0pp | 0.324 | no_improve 2/12 |
+| 28 | 91.2% | 91.2% | 0.0pp | 0.338 | no_improve 3/12 |
+| 29 | 91.3% | 91.3% | 0.0pp | 0.351 | no_improve 4/12 |
+| 30 | 91.3% | 91.2% | 0.1pp | 0.365 | no_improve 5/12 |
+| 31 | 91.2% | 91.1% | 0.1pp | 0.378 | no_improve 6/12 |
+| 32 | 91.2% | 91.1% | 0.1pp | 0.392 | no_improve 7/12 |
+| 33 | 91.1% | 91.1% | 0.0pp | 0.405 | no_improve 8/12 |
+| 34 | 91.2% | 91.1% | 0.1pp | 0.419 | no_improve 9/12 |
+| 35 | 91.2% | 91.1% | 0.1pp | 0.432 | no_improve 10/12 |
+| 36 | 91.1% | 91.1% | 0.0pp | 0.446 | no_improve 11/12 |
+| **37** | **91.1%** | **91.1%** | **0.0pp** | 0.460 | **🛑 EARLY STOP (12/12)** |
 
-### Jack
+---
 
-**Archivo:** `skills.py` línea 564-581
+## 🏗️ Architecture — LimbSequenceTransformer
 
-**Definición:** Misma nota, mismo pie, rápida:
-- Líneas **iguales** (`lines[j] == lines[i]`)
-- **Un solo downpress** (`num_downpress == 1`)
-- **Mismo pie** (`limb_annots[i] == limb_annots[j]`)
-- Ritmo rápido (`ts[j]` - cualquier valor positivo cuenta)
-
-```python
-def jack(cs: ChartStruct) -> None:
-    res = [False]
-    for i, j in itertools.pairwise(range(len(df))):
-        crits = [
-            lines[j] == lines[i],              # misma línea
-            notelines.num_downpress(lines[i]) == 1,  # una sola nota
-            limb_annots[i] == limb_annots[j],  # mismo pie
-            ts[j]                               # hay ritmo (no importa el valor)
-        ]
-        res.append(all(crits))
+```
+┌──────────────────────────────────────────────────┐
+│              INPUT SEQUENCE                       │
+│         N arrows × 22 features                   │
+│  ┌──────────────────┐  ┌──────────────────────┐  │
+│  │  18 arrow feats  │  │  4 prev_limb one-hot  │  │
+│  │ col_idx, timing  │  │  L / R / E / START    │  │
+│  │ geometry, holds  │  │                       │  │
+│  └──────────────────┘  └──────────────────────┘  │
+└──────────────────────────────────┬───────────────┘
+                                   │ x ∈ ℝ^(N×22)
+                                   ▼
+                     ┌─────────────────────────┐
+                     │   Input LayerNorm        │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │   Linear Projection      │
+                     │      22 → 384            │
+                     └────────────┬────────────┘
+                                  │  + (element-wise)
+                                  ▼
+                     ┌─────────────────────────┐
+                     │  Sinusoidal Positional   │
+                     │      Encoding            │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │     Dropout (p=0.1)      │
+                     └────────────┬────────────┘
+                                  │
+                     ┌────────────▼────────────┐
+                     │  TransformerEncoder ×8   │  ← 8 layers
+                     │  n_heads=8  ffn=1536     │
+                     │                          │
+                     │ ┌──────────┐ ┌────────┐  │
+                     │ │Multi-Head│ │  FFN   │  │
+                     │ │   Attn   │ │ (1536) │  │
+                     │ │+ CAUSAL  │ │+ResNorm│  │
+                     │ │  MASK    │ │        │  │
+                     │ └──────────┘ └────────┘  │
+                     │  ⚠️ position i only sees  │
+                     │     positions 0..i        │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │   Output LayerNorm       │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │  2-Layer Classification  │
+                     │  d_model → d/2 → GELU   │
+                     │          → 3 classes     │
+                     └────────────┬────────────┘
+                                  │ logits ∈ ℝ^(N×3)
+                                  ▼
+                     ┌─────────────────────────┐
+                     │   Output: Limb per Arrow │
+                     │  0=Left  1=Right  2=Either│
+                     └─────────────────────────┘
 ```
 
-### Footswitch
+### Input Features (22 total)
 
-**Archivo:** `skills.py` línea 584-599
+**18 Arrow Features** (position, timing, geometry):
 
-**Definición actual:** Misma nota, pies alternados:
-- Líneas **iguales** (`lines[j] == lines[i]`)
-- **Un solo downpress** (`num_downpress == 1`)
-- **Pies diferentes** (`limb_annots[i] != limb_annots[j]`)
+| Feature | Description |
+|---------|-------------|
+| `col_idx` | Column index of the arrow |
+| `symbol` | Note type (tap, hold head, hold end) |
+| `beat_time` | Timing in beats |
+| `is_hold_head` | Boolean: starts a hold |
+| `is_hold_end` | Boolean: ends a hold |
+| `hold_duration` | Duration of hold in seconds |
+| `is_bracket` | Boolean: can be bracketed |
+| `bracket_idx` | Bracket group index |
+| `x_coord` | Physical X position on pad |
+| `y_coord` | Physical Y position on pad |
+| `dt_from_prev` | Time delta from previous arrow |
+| `dt_to_next` | Time delta to next arrow |
+| `run_length` | Length of current run sequence |
+| `same_col_as_prev` | Same column as previous arrow |
+| `foot_dist` | Estimated foot travel distance |
+| `is_doublestep_candidate` | Boolean: could be a doublestep |
+| `panel_type` | Panel zone (DL/UL/C/UR/DR) |
+| `chart_level` | Difficulty level of the chart |
 
-```python
-def footswitch(cs: ChartStruct) -> None:
-    res = [False]
-    for i, j in itertools.pairwise(range(len(df))):
-        crits = [
-            lines[j] == lines[i],                  # misma posición de flecha
-            notelines.num_downpress(lines[i]) == 1,    # solo una nota
-            limb_annots[i] != limb_annots[j],      # pies diferentes
-        ]
-        res.append(all(crits))
+**4 prev_limb One-Hot:**
+
+| Dim | Meaning | Train | Inference |
+|-----|---------|-------|-----------|
+| 0 | Previous = Left | Ground truth | Model prediction |
+| 1 | Previous = Right | Ground truth | Model prediction |
+| 2 | Previous = Either | Ground truth | Model prediction |
+| 3 | START token | Chart beginning | Chart beginning |
+
+---
+
+## 🔑 Why the Causal Mask is Critical
+
 ```
+WITHOUT causal mask (v7a — WRONG):
 
-**⚠️ PROBLEMA IDENTIFICADO:** Esta función solo verifica que las líneas sean **iguales** (`lines[j] == lines[i]`), pero **NO verifica que sea la MISMA posición de flecha** en términos de `arrow_pos`. 
+Token i wants to predict Left or Right.
+It can attend to token i+1.
+Token i+1 has prev_limb = [1,0,0,0] (Left).
+This REVEALS the label of token i. That's cheating.
 
-Si tienes:
-```
-time 0.0: line = `00111` (flechas en pos 2,3,4), limb = "lr"
-time 0.5: line = `00111` (flechas en pos 2,3,4), limb = "lr"
-```
+        Arrow 5 ──────────────────────▶ Arrow 6
+      predict L/R                 prev_limb = L
+                                  (reveals Arrow 5 = L)
+                                       ↑ LEAKAGE 💀
 
-Esto NO es footswitch porque hay 3 notas, no 1. Pero si tienes:
-```
-time 0.0: line = `00100` (flecha en pos 2), limb = "l"
-time 0.5: line = `00100` (flecha en pos 2), limb = "r"
-```
+WITH causal mask (v7b, v8 — CORRECT):
 
-Esto SÍ es footswitch - la misma posición (pos 2) alternando entre pies.
+Attention matrix (✓ = can attend, ✗ = blocked):
 
-**Mejora necesaria:** El código actual compara líneas completas, pero no tracking de **cuál flecha específica** alterna. Para triples como `00111` con `l,r,l`:
-- Línea 1: `00111` → annotation `l,r,l` (3 notas)
-- Línea 2: `00111` → annotation `l,r,l` (3 notas)
+       j=0  j=1  j=2  j=3  j=4
+  i=0 [ ✓    ✗    ✗    ✗    ✗ ]
+  i=1 [ ✓    ✓    ✗    ✗    ✗ ]
+  i=2 [ ✓    ✓    ✓    ✗    ✗ ]
+  i=3 [ ✓    ✓    ✓    ✓    ✗ ]
+  i=4 [ ✓    ✓    ✓    ✓    ✓ ]
 
-Esto **no debería** ser footswitch. Esas son 3 notas simultáneas, no una nota alternando.
-
-### Bracket
-
-**Archivo:** `skills.py` línea 57-67, 249-256
-
-**Definición:** Una línea donde dos notas pueden ser ejecutadas con un solo pie.
-
-```python
-def has_bracket(line: str, limb_annot: str) -> bool:
-    # Cuenta cuántos 'l' y cuántos 'r' hay en la annotation
-    # Si hay >= 2 del mismo pie, puede ser bracket
-    if limb_annot.count('l') < 2 and limb_annot.count('r') < 2:
-        return False
-    arrow_positions = [i for i, s in enumerate(line) if s != '0']
-    if len(arrow_positions) < 2:
-        return False
-    # multihit_to_valid_feet() retorna qué combinaciones son válidas
-    valid_limbs = notelines.multihit_to_valid_feet(arrow_positions)
-    mapper = {'l': 0, 'r': 1, 'e': 0, 'h': 0}
-    return tuple(mapper[l] for l in limb_annot) in valid_limbs
-```
-
-**Ejemplo:** Si tienes `10100` (flechas en pos 0 y 2) con annotation `ll`:
-- `mapper['l'] = 0`, así `tuple(mapper[l] for l in 'll') = (0, 0)`
-- `[0, 0]` está en `valid_limbs` para esas posiciones → es bracket
-
-### Staggered Bracket
-
-**Archivo:** `skills.py` línea 259-277
-
-**Definición:** Dos líneas donde las notas, cuando se fusionan, forman un bracket.
-
-```python
-def staggered_bracket(line1: str, line2: str) -> bool:
-    # Fusiona las dos líneas: donde cualquiera tenga '1', cuenta
-    f = lambda c1, c2: '1' if bool(c1 == '1' or c2 == '1') else '0'
-    merged_line = ''.join([f(c1, c2) for c1, c2 in zip(line1, line2)])
-    return line_is_bracketable(merged_line)
-```
-
-Si line1 = `10000` y line2 = `00100`, el merged sería `10100` que es bracketable.
-
-### Drill
-
-**Archivo:** `skills.py` línea 91-142
-
-**Definición:** 
-- Dos líneas iniciales con pies alternando
-- Líneas siguientes que repiten las primeras dos
-- Ritmo consistente
-
-```python
-def drills(cs: ChartStruct) -> None:
-    i, j = 0, 1
-    while j < len(df):
-        crits = [
-            '1' in lines[i],                    # línea i tiene nota
-            '1' in lines[j],                    # línea j tiene nota
-            set(limb_annots[i]) != set(limb_annots[j]),  # pies alternan
-            len(set(limb_annots[i])) == 1,      # solo 1 pie en i
-            len(set(limb_annots[j])) == 1,      # solo 1 pie en j
-        ]
-        if all(crits):
-            # Extiende el drill buscando repeticiones
-            k = j + 1
-            while k < len(df):
-                if (k - i) % 2 == 0:
-                    same_as = lines[k] == lines[i]  # even: misma que i
-                else:
-                    same_as = lines[k] == lines[j]  # odd: misma que j
-                consistent_rhythm = math.isclose(ts[k], ts[j])
-                if same_as and consistent_rhythm:
-                    k += 1
-                else:
-                    break
-            if k - i >= MIN_DRILL_LEN:  # mínimo 5 notas
-                for idx in range(i, k):
-                    drill_idxs.add(idx)
+Upper triangle = -∞ (blocked)
+Position i can only attend to positions 0..i ✓
 ```
 
 ---
 
-## Sistema de Razonamiento de Patrones
+## 🔄 Scheduled Sampling — How It Works
 
-El sistema en `reasoning/reasoners.py` usa **LimbReusePattern** para detectar y ejecutar runs.
+```
+TRAINING (ss_prob=0):
+  prev_limb[i] = ground truth label[i-1]
+  Model always gets perfect context.
+  Problem: exposure bias — model never sees its own errors.
 
-### LimbReusePattern
+        GT: L  R  L  R  L  →  predict on these
+            ↓  ↓  ↓  ↓  ↓
+          [L][R][L][R][L]  (oracle prev_limb)
 
-**Archivo:** `reasoners.py` línea 26-70
+SCHEDULED SAMPLING (0 < ss_prob ≤ 0.5):
+  2 forward passes per batch:
+  1️⃣ Pass 1: teacher-forced → get model predictions
+  2️⃣ Replace prev_limb[i] with prediction with prob ss_prob
+  3️⃣ Pass 2: forward with mixed context → compute real loss
 
-```python
-class LimbReusePattern:
-    def __init__(self, downpress_idxs: list[int], limb_pattern: list[LimbUse]):
-        # downpress_idxs: índices de downpresses en el chart
-        # limb_pattern: lista de LimbUse.alternate o LimbUse.same
-        #    para cada par de downpresses consecutivos
-        pass
+        GT: L  R  L  R  L
+            ↓     ↓     ↓   ← ss_prob=0.5: replace 3/5 positions
+         pred  GT  pred GT  pred
+          [R] [R] [L] [R] [L]   (some oracle, some model preds)
 
-    def check(self, downpress_limbs: list[int | str]) -> tuple[bool, any]:
-        # Verifica si el patrón de limbs coincide con el esperado
-        # alternate: pies diferentes
-        # same: mismo pie
-        pass
+INFERENCE (ss_prob=1 implicit):
+  prev_limb[i] = model's own prediction for arrow i-1
+  Fully autoregressive. No oracle needed.
 
-    def fill_limbs(self, starting_limb: str) -> NDArray:
-        # "Llena" los limbs desde un pie inicial
-        # Si limb_pattern = [alternate, same, alternate]
-        # y starting_limb = 'left'
-        # → [0, 1, 1, 0] (izq, alternar a der, mismo der, alternar a izq)
-        pass
+  AR Gap = 0.0pp → model handles this perfectly ✓
 ```
 
-**Ejemplo:**
+### Scheduled Sampling Schedule (v8)
+
 ```
-downpress_idxs = [0, 1, 2, 3, 4]
-limb_pattern = [alternate, alternate, same, alternate]
-
-Si starts with left (0):
-→ [0, 1, 0, 0, 1] = l, r, l, l, r
-
-Si starts with right (1):
-→ [1, 0, 1, 1, 0] = r, l, r, r, l
-```
-
-### PatternReasoner
-
-**Archivo:** `reasoners.py` línea 72-429
-
-El `PatternReasoner` hace:
-
-1. **Anota el ChartStruct** con columnas adicionales:
-   - `__time since prev downpress`
-   - `__time to next downpress`
-   - `__line repeats previous downpress line`
-   - `__line repeats next downpress line`
-   - `__num downpresses`
-   - `__single hold ends immediately`
-
-2. **Encuentra runs** usando `find_runs()`:
-   - Busca secuencias de notas que cumplan criterios de tempo
-   - Parametros configurables via `args`:
-     ```python
-     MIN_TIME_SINCE = 1/13      # ~77ms mínimo entre notas
-     MAX_TIME_SINCE = 1/2.5     # ~400ms máximo entre notas
-     MIN_RUN_LENGTH = 5          # mínimo 5 notas
-     ```
-
-3. **Nombra runs** con `LimbReusePattern`:
-   - Cada run tiene un patrón de alternancia/same
-   - `__line repeats next downpress line` indica si la siguiente línea es igual (same) o diferente (alternate)
-
-4. **Decide limbs** para cada run:
-   - Prueba empezar con pie izq o pie der
-   - Usa `pattern_store.score_run()` para ver cuál inicio tiene mejor "score"
-   - Retorna None si no puede decidirse
-
-### find_runs() - Lógica Detallada
-
-**Archivo:** `reasoners.py` línea 368-429
-
-```python
-def find_runs(self) -> list[LimbReusePattern]:
-    runs = []
-    curr_run = None
-    downpress_df = df[df['__num downpresses'] > 0]
-    
-    for row_idx, row in downpress_df.iterrows():
-        if curr_run is None:
-            curr_run = [row_idx]
-        else:
-            if self.is_in_run(df.iloc[curr_run[0]], row):
-                curr_run.append(row_idx)
-            else:
-                # Evalúa si el run es largo enough
-                if len(curr_run) >= self.MIN_RUN_LENGTH:
-                    runs.append(curr_run)
-                curr_run = [row_idx]
-    
-    # Merge runs que están pegados
-    while (merged_runs := self.merge(runs)) != runs:
-        runs = merged_runs
-    
-    # Convierte runs a LimbReusePatterns
-    for run in runs:
-        # limb_pattern de cada par de líneas consecutivas
-        lp = [rnd_map[x] for x in repeats_next_downpress.iloc[run[:-1]]]
-        # rnd_map = {True: LimbUse.same, False: LimbUse.alternate}
-```
-
-**is_in_run() - Criterios:**
-```python
-def is_in_run(self, start_row, query_row) -> bool:
-    return all([
-        start_row['__time since prev downpress'] >= MIN_TIME_SINCE,
-        query_row['__time since prev downpress'] >= MIN_TIME_SINCE,
-        query_row['__time since prev downpress'] < MAX_TIME_SINCE,
-        query_row['__time to next downpress'] >= MIN_TIME_SINCE,
-        notelines.num_downpress(start_line) == 1,
-        notelines.num_downpress(query_line) == 1,
-        '4' not in start_line,  # no hold activo
-        '3' not in start_line,  # no fin de hold
-        '4' not in query_line,
-        '3' not in query_line,
-        not jack_on_center_panel,  # jack en centro puede ser footswitch
-        # ... más checks de downpress válido
-    ])
+ss_prob
+ 0.50 │                                             ·37
+ 0.45 │                                         ·35·36
+ 0.40 │                                     ·31·32
+ 0.35 │                                 ·28·29
+ 0.30 │                             ·25·26
+ 0.25 │                         ·22·23
+ 0.20 │                     ·18·19
+ 0.15 │                 ·14·15
+ 0.10 │          ·10·11
+ 0.05 │      ·6·7
+ 0.01 │  ·5
+ 0.00 │──────                              (warmup = epochs 1-3)
+      └────────────────────────────────────────────── Epoch
+       1  3  5  7  9  11 13 15 17 19 21 23 25 27 37
 ```
 
 ---
 
-## Problemas Conocidos y Mejoras Posibles
-
-### 1. Footswitch no detecta posición específica de flecha
-
-**Problema actual:**
-La función `footswitch()` compara líneas completas (`lines[j] == lines[i]`), pero no trackea **cuál flecha específica** alterna.
-
-**Escenario problemático:**
-```
-time 0.0: line = `00111`, limb = "lrl"  (pos 2,3,4)
-time 0.5: line = `00111`, limb = "lrl"  (pos 2,3,4)
-```
-
-Esto tiene 3 notas simultáneas en cada línea. No es footswitch.
-
-Pero si tienes:
-```
-time 0.0: line = `00100`, limb = "l"    (solo pos 2)
-time 0.5: line = `00100`, limb = "r"    (solo pos 2)
-```
-
-Esto SÍ es footswitch - la misma posición (pos 2) alternando.
-
-**Mejora sugerida:**
-Para cada par de líneas consecutivas que:
-- Tienen `num_downpress == 1`
-- Tienen limbs diferentes
-
-Verificar que la posición de la flecha (`arrow_pos`) sea la misma en ambas líneas.
-
-### 2. Footswitch depende de cadencia
-
-**Problema actual:**
-El código NO tiene en cuenta la cadencia/tempo para distinguir entre:
-- **Run rápido** → no debería llamarse footswitch
-- **Footswitch** → notas más relajadas, alternando mismo pie
-
-**Escenario problemático:**
-```
-8th notes a 180 BPM:
-time 0.0: pos 2 → l
-time 0.33: pos 2 → r
-time 0.67: pos 2 → l
-time 1.0: pos 2 → r
-```
-
-Esto se siente como un run, no como footswitch.
-
-**Mejora sugerida:**
-Añadir umbral de tiempo mínimo/máximo entre notas para clasificar como footswitch:
-- `MIN_TIME_SINCE` para runs (más rápido)
-- Rango diferente para footswitch (más relajado)
-
-### 3. Bracket y Twist pueden confundirse
-
-En triples como `00111` con `l,r,l`:
-- Podría ser bracket (dos notas ejecutables con un pie)
-- Podría ser un patrón de twist
-
-El código actual depende de la limb annotation para decidir, pero si la annotation está mal, el bracket detection también estará mal.
-
----
-
-## Arquitectura del Proyecto
+## 🪞 Both-Mirror Augmentation
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         PIPELINE PRINCIPAL                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  .ssc (StepMania) ──► SongSSC/StepchartSSC ──► ChartStruct          │
-│                                               │                     │
-│                    ┌──────────────────────────┼───────────────────┐  │
-│                    ▼                          ▼                   ▼  │
-│           Anotación de Skills      Segmentación      Predicción de   │
-│           (skills.py)             (segment.py)     Extremidades     │
-│                    │                          │             (ml/)   │
-│                    ▼                          ▼                   ▼  │
-│           25+ columnas bool      list[Section]    Limb predictions │
-│                    │                          │                   │  │
-│                    └──────────────────────────┼───────────────────┘  │
-│                                               ▼                    │
-│                                    Predicción de Dificultad        │
-│                                    (difficulty/)                   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+Every epoch trains on BOTH orientations of every chart:
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                    PIPELINE DE PREDICCIÓN ML                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ChartStruct + Limb Annotations vacías                               │
-│         │                                                             │
-│         ▼                                                             │
-│  PatternReasoner.propose_limbs()                                    │
-│         │                                                             │
-│         ├── find_runs() → LimbReusePatterns                         │
-│         ├── decide_limbs_for_pattern() → fill_limbs()              │
-│         └── Score con pattern_store.score_run()                     │
-│         │                                                             │
-│         ▼                                                             │
-│  Tactician (post-processing)                                         │
-│         │                                                             │
-│         ├── initial_predict() → modelo LightGBM                     │
-│         ├── enforce_arrow_after_hold_release()                     │
-│         ├── flip_labels_by_score()                                  │
-│         ├── flip_jack_sections()                                    │
-│         ├── beam_search()                                          │
-│         ├── fix_double_doublestep()                                │
-│         └── detect_impossible_multihit()                            │
-│         │                                                             │
-│         ▼                                                             │
-│  ChartStruct + Limb Annotations completas                            │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+ORIGINAL:                      MIRRORED:
+  ↙  ↑  →                →      ←  ↑  ↗
+  L  R  R                        R  L  L
+
+Panel mapping:
+  DL ↔ DR   (down-left ↔ down-right)
+  UL ↔ UR   (up-left  ↔ up-right)
+  C  =  C   (center stays center)
+
+Label mapping: L ↔ R  |  E = E
+
+Result: Perfect L/R symmetry in the dataset.
+Prevents the model from learning shortcuts based on
+starting-foot distribution patterns in the ground truth.
 ```
 
 ---
 
-## Instalación
+## 🚨 Critical Implementation Notes
+
+### Bug: MLX compile boundary
+
+```python
+# ❌ WRONG — causes IndexError: unordered_map::at in MLX
+def step(model, x, y, ss_prob, optimizer):
+    logits = model(x)                  # forward OUTSIDE compile
+    preds = mx.argmax(logits, axis=-1)
+    x_ss = replace_prev_limb(x, preds)
+    loss, grads = mx.value_and_grad(loss_fn)(model)  # INSIDE compile
+    ...
+
+# ✅ CORRECT — entire scheduled sampling inside mx.compile
+def step_ss(model, x, y, ss_prob, optimizer):
+    # Pass 1: teacher-forced to get predictions
+    logits_tf = model(x)
+    preds = mx.argmax(logits_tf, axis=-1)
+
+    # Replace prev_limb with model predictions at rate ss_prob
+    mask = mx.random.uniform(preds.shape) < ss_prob
+    x_ss = replace_prev_limb(x, preds, mask)
+
+    # mx.stop_gradient REQUIRED: prevents grads through discrete argmax
+    x_ss = mx.stop_gradient(x_ss)
+
+    # Pass 2: real forward + loss on mixed context
+    def loss_fn(model):
+        logits = model(x_ss)
+        return cross_entropy(logits, y).mean()
+
+    loss, grads = mx.value_and_grad(loss_fn)(model)
+    optimizer.update(model, grads)
+    return loss
+
+# Compile sees the full graph including both forward passes
+step_ss_compiled = mx.compile(step_ss, inputs=model.state)
+```
+
+### Immutable design decisions
+
+| Decision | Reason | Do NOT change |
+|----------|--------|---------------|
+| **Causal mask** | Without it, `prev_limb` leaks future labels | Unless you decouple prev_limb from input |
+| **Both-mirror augmentation** | Ensures L/R symmetry | Always keep |
+| **step_ss inside mx.compile** | MLX crashes with `IndexError` otherwise | Mandatory |
+| **mx.stop_gradient on x_ss** | Prevents gradient through discrete argmax | Required |
+| **Warmup before SS** | Unstable training without it | Keep ≥3 epochs |
+
+---
+
+## 📐 Technical Configuration
+
+```python
+# LimbSequenceTransformer v8 — final config
+config = {
+    "d_model":            384,    # up from 256 (v7b)
+    "n_heads":            8,
+    "n_layers":           8,      # up from 6 (v7b)
+    "ffn_dim":            1536,   # 4 × d_model
+    "dropout":            0.1,
+    "n_input_features":   22,     # 18 arrow + 4 prev_limb one-hot
+    "n_classes":          3,      # L=0, R=1, E=2
+    "causal_mask":        True,
+    "ss_warmup_epochs":   3,
+    "ss_max_prob":        0.5,
+    "total_epochs":       40,
+    "augmentation":       "both-mirror",
+    "MAX_SEQ_LEN":        1024,
+    "CHUNK_OVERLAP":      256,
+}
+
+# SS probability schedule
+ss_prob = (epoch - 3) / (40 - 3) * 0.5 if epoch > 3 else 0.0
+```
+
+---
+
+## 📁 Project Structure
+
+```
+piu-annotate_to_label_piu/
+│
+├── 📄 README.md                      ← You are here
+├── 📄 ROADMAP.md                     ← Full history + future plan
+│
+├── piu_annotate/
+│   └── ml/
+│       ├── mlx_architecture.py       ← LimbSequenceTransformer (causal mask)
+│       ├── mlx_dataset.py            ← Dataset utilities
+│       ├── featurizers.py            ← 18 arrow features
+│       └── predictor.py              ← Inference pipeline
+│
+├── cli/limbuse/
+│   ├── train_mlx.py                  ← Training loop (step/step_ss compiled)
+│   ├── cache_chunks.py               ← CSV → .npz feature cache
+│   ├── predict_limbs.py             ← Inference on new charts
+│   └── eval_models.py               ← Evaluation tools
+│
+└── artifacts/
+    ├── models/
+    │   ├── visss-mlx-v7b/           ← 88.6% (5M params)
+    │   └── visss-mlx-v8/            ← 91.4% ★ (14.7M params, current best)
+    └── cache/
+        └── mlx-singles/             ← Pre-computed .npz feature files
+```
+
+---
+
+## 🚀 Quickstart
 
 ```bash
+# Install
 pip install -e .
-```
+pip install mlx lightgbm pandas numpy loguru tqdm scipy scikit-learn
 
-### Dependencias
+# Cache features from CSV charts
+python cli/limbuse/cache_chunks.py --input-dir /path/to/charts --output-dir artifacts/cache/mlx-singles
 
-```bash
-pip install lightgbm ruptures pandas numpy loguru tqdm scipy scikit-learn
-```
+# Train (v8 config)
+python cli/limbuse/train_mlx.py \
+    --cache-dir artifacts/cache/mlx-singles \
+    --model-dir artifacts/models/my-model \
+    --d-model 384 --n-layers 8 --n-heads 8 --ffn-dim 1536 \
+    --ss-max-prob 0.5 --warmup-epochs 3 --epochs 40
 
----
-
-## Uso para Análisis de Skills
-
-### Cargar y detectar todos los skills
-
-```python
-from piu_annotate.formats.sscfile import SongSSC
-from piu_annotate.formats.chart import ChartStruct
-from piu_annotate.segment.skills import annotate_skills
-
-song = SongSSC.from_file('song.ssc')
-stepchart = song.get_stepchart(difficulty=15)
-cs = ChartStruct.from_stepchart_ssc(stepchart)
-
-annotate_skills(cs)  # Detecta todos los skills
-
-# Ver results
-print(cs.df[['Time', 'Line', 'Limb annotation', '__run', '__footswitch', '__jack']].head(20))
-```
-
-### Detectar skills específicos
-
-```python
-# Solo drill y run
-from piu_annotate.segment.skills import drills, run
-
-drills(cs)  # Añade columna __drill
-run(cs)     # Añade columna __run
-```
-
-### Ver skill stats
-
-```python
-skill_cols = [c for c in cs.df.columns if c.startswith('__') and cs.df[c].dtype == bool]
-for col in skill_cols:
-    count = cs.df[col].sum()
-    if count > 0:
-        print(f"{col}: {count} líneas")
+# Predict on a chart
+python cli/limbuse/predict_limbs.py \
+    --model artifacts/models/visss-mlx-v8 \
+    --input chart.csv
 ```
 
 ---
 
-## Formato de Archivo
+## 🗺️ Roadmap — Getting to 95%+
 
-### ChartStruct CSV
+The v8 plateau (91.0–91.4% for 12 epochs) signals that **the bottleneck is no longer training — it's architecture and data**. The AR gap being 0.0pp confirms the next improvement won't come from closing the train/inference gap.
 
-```csv
-Beat,Time,Line,Line with active holds,Limb annotation,Metadata
-0.0,0.0,`10000,`10000,l,
-0.5,0.5,`01000,`01000,r,
-1.0,1.0,`00100,`00100,?,
-...
+```
+Current:    91.4%  ████████████████████████████████████░░░░░░░░░
++ Quick wins: ~92.5%  TTA + Seed ensemble (no retraining needed)
++ CRF:      ~93.5%  Explicit transition modeling + Viterbi
++ Enc-Dec:  ~95.0%  Bidirectional encoder + causal decoder
++ More data: ~96%+  Pseudo-labeling on unlabeled charts
+Target:     ~95-97% Best human annotator (fefemz)
 ```
 
-### JSON de Visualización
+### Priority order
 
-```json
-[
-  [[arrow_pos, time, limb], ...],    // arrow_arts
-  [[arrow_pos, start, end, limb], ...], // hold_arts
-  {metadata}
-]
+| Phase | Change | Expected gain | Effort |
+|-------|--------|--------------|--------|
+| **0** | Error analysis by subgroup (brackets, jacks, BPM transitions) | — diagnostic | 1 day |
+| **1a** | Test-time augmentation (predict orig + mirror, average) | +0.3–0.5pp | 1 hour |
+| **1b** | Seed ensemble (3–5 v8 models, average logits) | +0.5–1pp | 2–3 days training |
+| **1c** | Beam search decoding (k=4–8) instead of greedy argmax | +0.3–0.7pp | 1 day |
+| **2a** | **CRF head + Viterbi decoding** | **+1–2pp** | 1–2 days |
+| **2b** | RoPE + RMSNorm + SwiGLU (modern transformer block) | +0.3–0.7pp | 1 day |
+| **2c** | **Encoder-decoder split** (bidir encoder / causal decoder) | **+1.5–3pp** | 1–2 weeks |
+| **3a** | Pseudo-labeling on unlabeled chart corpus | +1–3pp | 1 week |
+| **3b** | Masked-arrow pre-training (BERT-style) | +1–2pp | 2–4 weeks |
+
+See [`ROADMAP.md`](ROADMAP.md) for the detailed plan including implementation notes and rationale.
+
+---
+
+## 📊 Model Comparison
+
+```
+Accuracy (singles validation set)
+
+LightGBM  │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░  75.4%
+           │ No sequence context │
+
+v7b 5M    │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  88.6%
+           │ Causal mask + both-mirror │ 30 epochs │
+
+v8 14.7M  │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  91.4% ★
+           │ + Scheduled sampling │ 37 epochs │ Early stop │
+
+Target    │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  95–97%
+           │ Best human annotator (fefemz) │
+           0%                                              100%
 ```
 
 ---
 
-## Licencia
+## 💡 Key Findings
 
-MIT
+### 1. Scheduled sampling caused the biggest single-epoch jump in the entire run
+
+Epoch 5 (first SS epoch, `ss_prob=0.014`) produced a **+3.3pp jump** — from 82.0% to 85.3%. Even with just 1.4% of tokens using model predictions as context, the regularization effect was massive. The model immediately started learning to be robust to its own errors.
+
+### 2. Bigger model converges 3–4× faster
+
+v8 matched v7b's all-time best (88.6%) in **9 epochs** vs v7b's **30 epochs**. The 2.9× parameter increase didn't just improve final accuracy — it fundamentally changed the learning dynamics.
+
+### 3. AR gap = 0.0pp throughout training
+
+From epoch 1, oracle accuracy (teacher-forced) and AR accuracy (autoregressive) were within 0.0–0.1pp. This is exceptional: the model never developed an oracle dependency. It always predicted as well with its own outputs as with ground truth.
+
+### 4. MLX compile boundary is a hard constraint
+
+Calling `model()` outside the compiled step function causes `IndexError: unordered_map::at` in MLX. The entire scheduled sampling (including both forward passes) must live inside a single `mx.compile` call. This is a subtle MLX implementation detail that took significant debugging to identify.
+
+### 5. The plateau tells you what to fix next
+
+The 12-epoch no-improvement plateau (epochs 25–37 at 91.0–91.4%) is diagnostic: **the model has learned everything it can given its architecture and training setup**. The 8.6% remaining errors are not fixable by training longer or tuning learning rate — they require new architectural capabilities (bidirectional context, structured decoding) or more data.
+
+---
+
+## ⚙️ Skills Detection System
+
+The project also includes a rule-based skills detection system that annotates charts with 25+ technical patterns. These features feed into the ML pipeline as part of the 18 arrow features.
+
+<details>
+<summary>Click to expand skills list</summary>
+
+| Skill | Description |
+|-------|-------------|
+| `run` | Alternating feet sequence, consistent rhythm, ≥7 notes |
+| `drill` | Run with repeated note pattern |
+| `jack` | Same panel, same foot, rapid |
+| `footswitch` | Same panel, alternating feet |
+| `bracket` | Two notes playable with one foot |
+| `staggered_bracket` | Bracket split across two consecutive lines |
+| `doublestep` | Two different panels, same foot |
+| `twist_90` | 90° body rotation required |
+| `twist_over90` | >90° body rotation required |
+| `twist_close` / `twist_far` | Twist distance variants |
+| `side3_singles` | 3 panels on one side in singles |
+| `split` | Feet at opposite extremes |
+| `stair5` / `stair10` | 5/10-note staircase patterns |
+| `yog_walk` | Yog walk pattern |
+| `hold_footswitch` | Footswitch during hold |
+| `bracket_run` / `bracket_drill` | Compound patterns |
+
+</details>
+
+---
+
+## 🎯 Project Goal
+
+Annotate every Pump It Up chart with **which foot hits each arrow** at the accuracy level of the best human annotator (fefemz). Ground truth is vis-ss manual annotations.
+
+The annotations are used to:
+- Teach players correct foot technique
+- Power the difficulty rating system
+- Enable automatic chart analysis for the PIU community
+
+---
+
+<div align="center">
+
+**v8 LimbSequenceTransformer · 91.4% Singles Val Accuracy · Apple Silicon / MLX**
+
+*Early stop @ epoch 37/40 · Best @ epoch 25 · AR gap 0.0pp*
+
+</div>

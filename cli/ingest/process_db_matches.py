@@ -144,8 +144,8 @@ def predict_limbs_pattern_only(cs: ChartStruct) -> None:
 MODEL_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss'
 
 
-def setup_model_args(model_dir: str) -> None:
-    args['model'] = 'lightgbm'
+def setup_model_args(model_dir: str, model_type: str = 'lightgbm') -> None:
+    args['model'] = model_type
     args['model.dir'] = model_dir
     for sd in ('singles', 'doubles'):
         args[f'model.arrows_to_limb-{sd}'] = f'{sd}-arrows_to_limb.txt'
@@ -176,7 +176,6 @@ def predict_limbs_ml(
         predict_limbs_pattern_only(cs)
         return
 
-    pred_limbs = _fix_multihits_by_naturalness(pred_limbs, pred_coords)
 
     int_to_limb = {0: 'l', 1: 'r'}
     limb_strs = [int_to_limb[int(x)] for x in pred_limbs]
@@ -206,6 +205,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--only_missing_visss', action='store_true',
                         help='Only process charts that lack a vis-ss ground truth file')
+    parser.add_argument('--only_visss', action='store_true',
+                        help='Only process charts that HAVE a vis-ss ground truth file')
+    parser.add_argument('--model_type', default='lightgbm', choices=['lightgbm', 'mlx'],
+                        help='Which model to use for inference')
+    parser.add_argument('--song', default=None, help='Filter by song name substring')
+    parser.add_argument('--exclude_ucs', action='store_true', help='Exclude UCS-tagged charts')
     pargs = parser.parse_args()
 
     db_json_path = '/Users/rodrigo/dev/piu/ligas-piu-api/master_db.json'
@@ -215,13 +220,14 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     vis_shortnames = set()
-    if pargs.only_missing_visss:
+    if pargs.only_missing_visss or pargs.only_visss:
         vis_shortnames = load_vis_shortnames(VIS_SS_DIR)
-        logger.info(f'Loaded {len(vis_shortnames)} vis-ss shortnames — will skip these charts')
+        logger.info(f'Loaded {len(vis_shortnames)} vis-ss shortnames')
 
     # 0. Load ML models once
-    setup_model_args(MODEL_DIR)
-    logger.info(f'Loading ML ModelSuites from {MODEL_DIR} ...')
+    model_dir = MODEL_DIR if pargs.model_type == 'lightgbm' else MODEL_DIR + '-mlx'
+    setup_model_args(model_dir, pargs.model_type)
+    logger.info(f'Loading ML ModelSuites ({pargs.model_type}) from {model_dir} ...')
     suite_singles = ModelSuite('singles')
     suite_doubles = ModelSuite('doubles')
     logger.info('ML models loaded.')
@@ -250,6 +256,8 @@ def main():
     # 3. Process each song in DB
     for song in tqdm(master_db, desc="Processing DB songs"):
         query = song['song_name'].lower()
+        if pargs.song and pargs.song.lower() not in query:
+            continue
         matched_title = fuzzy_match_song_name(query, target_songs)
         
         if not matched_title:
@@ -265,6 +273,11 @@ def main():
         for sc in ssc_stepcharts:
             lvl = int(sc['METER']) if sc['METER'].isdigit() else 0
             style = sc['STEPSTYPE'].split('-')[-1] # e.g. pump-single -> single
+
+            if pargs.exclude_ucs and sc.is_ucs():
+                logger.debug(f"Skipping UCS chart: {sc['TITLE']} {style}{lvl}")
+                continue
+
             if style == 'single':
                 mode = 'S'
             elif style == 'double':
@@ -294,10 +307,14 @@ def main():
                 if cs is None:
                     continue
 
+                shortname = cs.metadata.get('shortname', '')
                 if pargs.only_missing_visss and vis_shortnames:
-                    shortname = cs.metadata.get('shortname', '')
                     if shortname in vis_shortnames:
                         continue  # has vis-ss ground truth — skip
+                        
+                if pargs.only_visss and vis_shortnames:
+                    if shortname not in vis_shortnames:
+                        continue  # does not have vis-ss ground truth - skip
 
                 cs.annotate_time_since_downpress()
                 cs.annotate_time_to_next_downpress()
@@ -409,7 +426,7 @@ def main():
 
                 processed_count += 1
             except Exception as e:
-                logger.warning(f"Skipping {song['song_name']} {mode}{level}: {e}")
+                logger.error(f"FAILED {song['song_name']} {mode}{level}: {e}")
                 logger.debug(traceback.format_exc())
 
     logger.success(f"Matched {match_count}/{len(master_db)} songs.")
