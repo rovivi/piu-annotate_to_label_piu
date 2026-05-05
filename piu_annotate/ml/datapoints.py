@@ -31,6 +31,13 @@ class ArrowDataPoint:
     next_line_only_releases_hold_on_this_arrow: bool
     x: float = 0.0
     y: float = 0.0
+    # v9 structural features
+    prev_line_was_bracket: bool = False
+    next_line_is_bracketable: bool = False
+    hold_count_in_line: int = 0
+    time_to_next_downpress: float = -1.0
+    is_jack: bool = False
+    n_same_panel_streak: int = 0
 
     def to_array_categorical(self) -> NDArray:
         """ Featurize, using int for categorical features """
@@ -49,6 +56,13 @@ class ArrowDataPoint:
             int(self.line_repeats_next_downpress_line),
             self.x,
             self.y,
+            # v9
+            int(self.prev_line_was_bracket),
+            int(self.next_line_is_bracketable),
+            self.hold_count_in_line,
+            self.time_to_next_downpress,
+            int(self.is_jack),
+            self.n_same_panel_streak,
         ]
         return np.concatenate([np.array(fts), line_ft])
 
@@ -69,7 +83,14 @@ class ArrowDataPoint:
             'line_repeats_previous_downpress_line',
             'line_repeats_next_downpress_line',
             'x',
-            'y'
+            'y',
+            # v9
+            'prev_line_was_bracket',
+            'next_line_is_bracketable',
+            'hold_count_in_line',
+            'time_to_next_downpress',
+            'is_jack',
+            'n_same_panel_streak',
         ] + line_ft_names
         assert len(ft_names) == len(self.to_array_categorical())
         return ft_names

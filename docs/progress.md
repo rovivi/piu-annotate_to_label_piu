@@ -132,6 +132,11 @@ artifacts/models/visss/  (8 modelos: singles/doubles × 4 tasks)
 artifacts/processed_db/  (4372 JSONs)
     ↓ sync_to_piulatam.py
 piulatam/public/chart-jsons/  (visor web)
+
+    ↓ cli/limbuse/infer_v8_batch.py
+comparations/  (index.json + generated/ + origin_viss/)
+    ↓ python3 -m http.server 8080
+comparations/comparation.html  (comparison viewer side-by-side)
 ```
 
 ## Comandos útiles
@@ -154,4 +159,16 @@ python3 scripts/compare_models.py --plot
 
 # Sync a piulatam
 python3 sync_to_piulatam.py
+
+# Generar datos para el comparison viewer (v8 vs vis-ss)
+python3 cli/limbuse/infer_v8_batch.py \
+  --simfiles_dir /Users/rodrigo/dev/piu/piu_sim_files \
+  --out_dir comparations/generated \
+  --model_dir artifacts/models/visss-mlx-v8 \
+  --viss_src /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524 \
+  --sd both
+
+# Servir comparison viewer
+# Requisito: ln -s piu-vis-ss_for_piumx/public/images comparations/images
+cd /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/comparations && python3 -m http.server 8080
 ```

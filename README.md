@@ -484,6 +484,51 @@ python cli/limbuse/predict_limbs.py \
 
 ---
 
+## 🔍 Comparison Viewer
+
+Para inspeccionar visualmente las predicciones del modelo lado a lado con las anotaciones manuales de vis-ss, existe un visor interactivo en `comparations/comparation.html`.
+
+### Generar datos para el comparador
+
+```bash
+python cli/limbuse/infer_v8_batch.py \
+    --simfiles_dir /Users/rodrigo/dev/piu/piu_sim_files \
+    --out_dir comparations/generated \
+    --model_dir artifacts/models/visss-mlx-v8 \
+    --viss_src /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524 \
+    --sd both
+```
+
+Esto produce tres cosas en `piu-annotate_to_label_piu/comparations/`:
+- `index.json` — índice de todos los charts con accuracy vs vis-ss
+- `generated/*.json` — predicciones del modelo v8 en formato vis-ss
+- `origin_viss/*.json` — ground truth copiado desde el folder de vis-ss
+
+### Requisitos previos
+
+Asegúrate de que exista el symlink de imágenes:
+```bash
+ln -s /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/images \
+       /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/comparations/images
+```
+
+### Ver el comparador
+
+```bash
+cd /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/comparations
+python3 -m http.server 8080
+# Abre http://localhost:8080/comparation.html
+```
+
+**Funcionalidades:**
+- Dos paneles sincronizados: izquierda = vis-ss (manual), derecha = v8 MLX (generado)
+- Scroll sincronizado entre ambos paneles
+- Diferencias resaltadas en rojo con glow
+- Playback automático (tecla `Space` o botón ▶)
+- Filtros por nombre, accuracy, singles/doubles, disponibilidad de vis-ss
+
+---
+
 ## 🗺️ Roadmap — Getting to 95%+
 
 The v8 plateau (91.0–91.4% for 12 epochs) signals that **the bottleneck is no longer training — it's architecture and data**. The AR gap being 0.0pp confirms the next improvement won't come from closing the train/inference gap.

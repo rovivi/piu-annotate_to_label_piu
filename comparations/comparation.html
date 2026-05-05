@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v8 vs vis-ss — Comparison Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/konva@9/konva.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --blue: #58a6ff; --green: #3fb950; --orange: #f0883e;
+    --red: #f85149; --gold: #ffd700; --purple: #a371f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,'Segoe UI',sans-serif; font-size: 14px; overflow: hidden; }
+
+  /* ── LAYOUT ── */
+  .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; overflow: hidden; }
+  .sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+  .viewer-area { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── SIDEBAR ── */
+  .s-header { padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+  .s-header h1 { font-size: 0.95rem; font-weight: 700; }
+  .s-header .sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .global-stats { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .gstat { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; text-align: center; font-size: 11px; }
+  .gstat .v { font-weight: 700; display: block; }
+  .gstat .l { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+
+  .filters { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters input[type=text] { flex: 1; background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 5px 8px; font-size: 12px; min-width: 80px; }
+  .filters input:focus { outline: none; border-color: var(--blue); }
+  .filters select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 4px 6px; font-size: 11px; }
+
+  .list-wrap { flex: 1; overflow-y: auto; }
+  .ci { padding: 8px 12px; border-bottom: 1px solid rgba(48,54,61,.5); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .ci:hover { background: var(--bg2); }
+  .ci.active { background: rgba(88,166,255,.1); border-left: 3px solid var(--blue); }
+  .ci-name { flex: 1; font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ci-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .abadge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+  .ah { background: rgba(63,185,80,.2); color: var(--green); }
+  .am { background: rgba(240,136,62,.2); color: var(--orange); }
+  .al { background: rgba(248,81,73,.2); color: var(--red); }
+  .an { background: rgba(107,114,128,.2); color: var(--muted); }
+  .nv { background: rgba(163,113,247,.15); color: var(--purple); font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+
+  /* ── VIEWER HEADER ── */
+  .viewer-header { padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg2); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .vh-title { font-size: 0.9rem; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vh-stats { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .vstat { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 4px 10px; font-size: 12px; text-align: center; }
+  .vstat .v { font-size: 1.1rem; font-weight: 800; display: block; }
+  .vstat .l { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+  .speed-ctrl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .speed-ctrl input { width: 80px; accent-color: var(--blue); }
+  .sync-info { font-size: 11px; color: var(--muted); padding: 2px 8px; background: var(--bg3); border-radius: 4px; }
+
+  /* ── CANVASES ── */
+  .canvases { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+  .chart-pane { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+  .chart-pane:last-child { border-right: none; }
+  .pane-label { padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .pane-scroll { flex: 1; overflow: auto; position: relative; background: rgba(46,46,46,.8); }
+
+  /* ── LEGEND ── */
+  .legend { padding: 4px 12px; border-top: 1px solid var(--border); background: var(--bg2); display: flex; gap: 14px; font-size: 10px; color: var(--muted); align-items: center; }
+  .ld { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  /* ── EMPTY ── */
+  .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); text-align: center; padding: 20px; grid-column: 1 / -1; }
+
+  /* ── PLAYBACK ── */
+  .play-overlay { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; gap: 6px; background: rgba(0,0,0,.82); padding: 6px 10px; border-radius: 8px; backdrop-filter: blur(6px); }
+  .pbtn { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); color: #fff; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+  .pbtn:hover { background: rgba(255,255,255,.2); }
+  .pbtn.on { background: rgba(100,200,100,.25); border-color: #6dc96d; }
+
+  /* loading */
+  .loading { display:flex; align-items:center; justify-content:center; height:100%; color:var(--muted); font-size:.9rem; grid-column:1/-1; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .spin { display:inline-block; width:20px; height:20px; border:3px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin .7s linear infinite; margin-right:8px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ══ SIDEBAR ══ -->
+<div class="sidebar">
+  <div class="s-header">
+    <h1>v8 vs vis-ss</h1>
+    <div class="sub">Modelo 91.4% · Anotación manual fefemz</div>
+    <div class="global-stats" id="gstats"></div>
+  </div>
+  <div class="filters">
+    <input type="text" id="q" placeholder="Buscar…">
+    <select id="fsort">
+      <option value="acc_asc">Acc ↑</option>
+      <option value="acc_desc">Acc ↓</option>
+      <option value="name">Nombre</option>
+      <option value="lvl">Nivel</option>
+    </select>
+    <select id="ftype">
+      <option value="all">Todos</option>
+      <option value="viss">Con vis-ss</option>
+      <option value="noviss">Sin vis-ss</option>
+      <option value="s">Singles</option>
+      <option value="d">Doubles</option>
+    </select>
+  </div>
+  <div class="list-wrap" id="chartList"></div>
+</div>
+
+<!-- ══ VIEWER ══ -->
+<div class="viewer-area">
+  <div class="viewer-header">
+    <div class="vh-title" id="vhTitle">Selecciona un chart →</div>
+    <div class="vh-stats" id="vhStats"></div>
+    <div class="speed-ctrl">
+      Vel: <input type="range" id="speedSlider" min="150" max="700" value="350" step="10">
+      <span id="speedVal">350px/s</span>
+    </div>
+  </div>
+
+  <div class="canvases" id="canvases">
+    <div class="empty">
+      <div>
+        <div style="font-size:2rem;margin-bottom:8px">🎮</div>
+        Selecciona un chart de la lista<br>
+        <span style="font-size:12px">Sirve con: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">python3 -m http.server 8080</code> desde esta carpeta</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="ld"><span class="dot" style="background:#3b82f6"></span>Left</span>
+    <span class="ld"><span class="dot" style="background:#ef4444"></span>Right</span>
+    <span class="ld"><span class="dot" style="background:#a371f7"></span>Either</span>
+    <span class="ld"><span class="dot" style="background:#f85149;border:1px solid #f85149;outline:2px solid #f8514966;outline-offset:1px"></span>Diferente entre modelos</span>
+    <span style="margin-left:auto;font-size:11px">Scroll sincronizado · Space = play/pausa</span>
+  </div>
+</div>
+
+</div><!-- /.app -->
+
+<script>
+'use strict';
+
+// ────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ────────────────────────────────────────────────────────────────
+const PANEL_NAMES = ['downleft','upleft','center','upright','downright'];
+const LIMB_MAP = { l:'left', r:'right', e:'either', h:'hand', '?':'either' };
+const LIMB_COLORS = { l:'#3b82f6', r:'#ef4444', e:'#a371f7', h:'#f0883e', '?':'#a371f7' };
+const PX_PER_SEC_DEFAULT = 350;
+let globalPxPerSec = PX_PER_SEC_DEFAULT;
+
+// ────────────────────────────────────────────────────────────────
+// IMAGE CACHE
+// ────────────────────────────────────────────────────────────────
+function imgPath(panelPos, limb, type) {
+  const panelName = PANEL_NAMES[panelPos % 5];
+  const limbName  = LIMB_MAP[(limb || '?').toLowerCase()] ?? 'either';
+  const prefix = type === 'cap' ? 'holdcap' : type;
+  return `./images/arrows-hint/${prefix}_${panelName}_${limbName}.png`;
+}
+
+const IMG_CACHE = {};
+function getImg(src) {
+  if (!IMG_CACHE[src]) {
+    const img = new Image();
+    img.src = src;
+    IMG_CACHE[src] = img;
+  }
+  return IMG_CACHE[src];
+}
+
+// ────────────────────────────────────────────────────────────────
+// CHART VISUALIZER
+// ────────────────────────────────────────────────────────────────
+function createVisualizer(containerEl, scrollEl, chartJson, diffSet) {
+  if (!chartJson) return null;
+
+  const arrows  = chartJson[0] || [];
+  const holds   = chartJson[1] || [];
+  const meta    = chartJson[2] || {};
+
+  const isDouble   = (meta.STEPSTYPE || '').toLowerCase().includes('double');
+  const numPanels  = isDouble ? 10 : 5;
+  const INTERVAL   = 40;
+  const CHART_W    = numPanels * INTERVAL;
+  const PAD_L      = 52;      // time-label gutter
+  const HEADER_H   = 22;      // panel-label row
+  const PAD_TOP    = HEADER_H + 4;
+  const STAGE_W    = PAD_L + CHART_W + 16;
+
+  const lastTime   = Math.max(
+    arrows.length  ? arrows[arrows.length - 1][1]  : 0,
+    holds.length   ? holds[holds.length - 1][2]    : 0,
+  );
+  const CONTENT_H  = lastTime * globalPxPerSec + 120;
+  const CANVAS_H   = CONTENT_H + PAD_TOP;
+
+  containerEl.style.width  = STAGE_W + 'px';
+  containerEl.style.height = CANVAS_H + 'px';
+
+  const stage = new Konva.Stage({
+    container: containerEl,
+    width:  STAGE_W,
+    height: scrollEl.clientHeight || 500,
+  });
+
+  const layerBase   = new Konva.Layer();
+  const layerHolds  = new Konva.Layer();
+  const layerArrows = new Konva.Layer();
+  const layerDiff   = new Konva.Layer();
+  const layerHeader = new Konva.Layer();
+  stage.add(layerBase, layerHolds, layerArrows, layerDiff, layerHeader);
+
+  // Keep stage viewport aligned with scroll
+  function reposition() {
+    const dx = scrollEl.scrollLeft;
+    const dy = scrollEl.scrollTop;
+    stage.container().style.transform = `translate(${dx}px,${dy}px)`;
+    stage.x(-dx);
+    stage.y(-dy);
+  }
+  scrollEl.addEventListener('scroll', reposition);
+
+  // Resize support
+  function onResize() {
+    stage.height(scrollEl.clientHeight || 500);
+    reposition();
+    stage.batchDraw();
+  }
+  window.addEventListener('resize', onResize);
+
+  // ── Panel labels ──────────────────────────────────────────────
+  const labels = isDouble
+    ? ['P1↙','P1↖','P1↑','P1↗','P1↘','P2↙','P2↖','P2↑','P2↗','P2↘']
+    : ['DL','UL','C','UR','DR'];
+  labels.forEach((lbl, i) => {
+    layerHeader.add(new Konva.Text({
+      x: PAD_L + i * INTERVAL, y: 4,
+      width: INTERVAL, align: 'center',
+      text: lbl, fontSize: 11, fill: '#777', fontStyle: 'bold',
+    }));
+    if (i > 0) {
+      layerBase.add(new Konva.Line({
+        points: [PAD_L + i * INTERVAL, PAD_TOP, PAD_L + i * INTERVAL, CANVAS_H],
+        stroke: '#1a1a1a', strokeWidth: 1,
+      }));
+    }
+  });
+
+  // ── Grid + time labels every second ───────────────────────────
+  for (let t = 0; t * globalPxPerSec < CONTENT_H; t++) {
+    const y = PAD_TOP + t * globalPxPerSec;
+    if (t > 0) {
+      const mm = Math.floor(t / 60).toString().padStart(2,'0');
+      const ss = (t % 60).toString().padStart(2,'0');
+      layerBase.add(new Konva.Text({
+        text: `${mm}:${ss}`, x: 2, y: y - 7,
+        fontSize: 11, fill: '#555', align: 'right', width: PAD_L - 6,
+      }));
+    }
+    layerBase.add(new Konva.Line({
+      points: [PAD_L, y, PAD_L + CHART_W, y],
+      stroke: t % 2 === 0 ? '#2c2c2c' : '#222',
+      strokeWidth: 1,
+    }));
+  }
+
+  // ── Draw holds ────────────────────────────────────────────────
+  holds.forEach(ha => {
+    const [pos, t0, t1, limb] = ha;
+    const x  = PAD_L + pos * INTERVAL;
+    const y0 = PAD_TOP + t0 * globalPxPerSec;
+    const y1 = PAD_TOP + t1 * globalPxPerSec;
+
+    const imgTrail = getImg(imgPath(pos, limb, 'trail'));
+    const imgCap   = getImg(imgPath(pos, limb, 'cap'));
+    const imgHead  = getImg(imgPath(pos, limb, 'arrow'));
+
+    const trailNode = new Konva.Image({
+      image: imgTrail, x, y: y0 + INTERVAL / 2,
+      width: INTERVAL, height: Math.max(2, y1 - y0),
+    });
+    if (!imgTrail.complete) imgTrail.onload = () => stage.batchDraw();
+    layerHolds.add(trailNode);
+
+    const capNode = new Konva.Image({
+      image: imgCap, x, y: y1, width: INTERVAL, height: INTERVAL,
+    });
+    if (!imgCap.complete) imgCap.onload = () => stage.batchDraw();
+    layerHolds.add(capNode);
+
+    const headNode = new Konva.Image({
+      image: imgHead, x, y: y0, width: INTERVAL, height: INTERVAL,
+    });
+    if (!imgHead.complete) imgHead.onload = () => stage.batchDraw();
+    layerHolds.add(headNode);
+  });
+
+  // ── Draw arrows ───────────────────────────────────────────────
+  arrows.forEach((aa, idx) => {
+    const [pos, t, limb] = aa;
+    const x = PAD_L + pos * INTERVAL;
+    const y = PAD_TOP + t * globalPxPerSec;
+    const img = getImg(imgPath(pos, limb, 'arrow'));
+
+    const node = new Konva.Image({
+      image: img,
+      x: x + INTERVAL / 2,
+      y: y + INTERVAL / 2,
+      width: INTERVAL, height: INTERVAL,
+      offsetX: INTERVAL / 2, offsetY: INTERVAL / 2,
+      opacity: 0, scaleX: 0.6, scaleY: 0.6,
+    });
+    if (!img.complete) img.onload = () => stage.batchDraw();
+    layerArrows.add(node);
+
+    new Konva.Tween({
+      node, duration: 0.3,
+      opacity: 1, scaleX: 1, scaleY: 1,
+      easing: Konva.Easings.BackEaseOut,
+    }).play();
+
+    // Diff glow
+    if (diffSet && diffSet.has(idx)) {
+      layerDiff.add(new Konva.Rect({
+        x: x - 2, y: y - 2,
+        width: INTERVAL + 4, height: INTERVAL + 4,
+        stroke: '#f85149', strokeWidth: 2.5,
+        cornerRadius: 4,
+        shadowColor: '#f85149', shadowBlur: 12, shadowOpacity: 0.8,
+      }));
+    }
+  });
+
+  stage.batchDraw();
+  reposition();
+
+  return {
+    stage,
+    scrollEl,
+    destroy() {
+      window.removeEventListener('resize', onResize);
+      scrollEl.removeEventListener('scroll', reposition);
+      stage.destroy();
+    }
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// DIFF COMPUTATION
+// ────────────────────────────────────────────────────────────────
+function computeDiff(genJson, origJson) {
+  if (!origJson) return { genDiffSet: new Set(), origDiffSet: new Set(), correct: 0, total: 0 };
+
+  const genArrows  = genJson[0]  || [];
+  const origArrows = origJson[0] || [];
+
+  const origMap = {};
+  origArrows.forEach((a, i) => {
+    const key = `${a[0]}_${Math.round(a[1] * 1000)}`;
+    origMap[key] = { limb: (a[2] || '?').toLowerCase(), idx: i };
+  });
+
+  const genDiffSet  = new Set();
+  const origDiffSet = new Set();
+  let correct = 0, total = 0;
+
+  genArrows.forEach((a, i) => {
+    const key  = `${a[0]}_${Math.round(a[1] * 1000)}`;
+    const orig = origMap[key];
+    if (!orig) return;
+    const gl = (a[2] || '?').toLowerCase();
+    const ol = orig.limb;
+    if (ol === 'l' || ol === 'r') {
+      total++;
+      if (gl === ol) { correct++; }
+      else { genDiffSet.add(i); origDiffSet.add(orig.idx); }
+    }
+  });
+
+  return { genDiffSet, origDiffSet, correct, total };
+}
+
+// ────────────────────────────────────────────────────────────────
+// SCROLL SYNC
+// ────────────────────────────────────────────────────────────────
+function syncScroll(a, b) {
+  let syncing = false;
+  function makeFn(source, target) {
+    return () => {
+      if (syncing) return;
+      syncing = true;
+      target.scrollTop  = source.scrollTop;
+      target.scrollLeft = source.scrollLeft;
+      syncing = false;
+    };
+  }
+  const fnA = makeFn(a, b);
+  const fnB = makeFn(b, a);
+  a.addEventListener('scroll', fnA);
+  b.addEventListener('scroll', fnB);
+  return () => {
+    a.removeEventListener('scroll', fnA);
+    b.removeEventListener('scroll', fnB);
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// INDEX + LIST
+// ────────────────────────────────────────────────────────────────
+let INDEX = [];
+let activeShortname = null;
+
+async function loadIndex() {
+  try {
+    const r = await fetch('index.json');
+    if (!r.ok) throw new Error('not ok');
+    INDEX = await r.json();
+  } catch {
+    document.getElementById('canvases').innerHTML = `
+      <div class="empty">
+        <div style="color:var(--red)">
+          <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+          No se encontró index.json<br>
+          <span style="font-size:12px">Ejecuta: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">python3 cli/limbuse/infer_v8_batch.py</code></span>
+        </div>
+      </div>`;
+    return;
+  }
+  renderGlobalStats();
+  renderList();
+}
+
+function renderGlobalStats() {
+  const w = INDEX.filter(x => x.has_viss && x.accuracy != null);
+  const avg = w.length ? (w.reduce((s,x) => s + x.accuracy, 0) / w.length).toFixed(1) : '—';
+  document.getElementById('gstats').innerHTML = `
+    <div class="gstat"><span class="v" style="color:var(--blue)">${INDEX.length}</span><span class="l">Charts</span></div>
+    <div class="gstat"><span class="v" style="color:var(--green)">${w.length}</span><span class="l">Con vis-ss</span></div>
+    <div class="gstat"><span class="v" style="color:var(--gold)">${avg}%</span><span class="l">Avg acc</span></div>`;
+}
+
+function filtered() {
+  const q    = document.getElementById('q').value.toLowerCase();
+  const sort = document.getElementById('fsort').value;
+  const type = document.getElementById('ftype').value;
+
+  let items = INDEX.filter(x => {
+    if (q && !x.shortname.toLowerCase().includes(q) && !x.title.toLowerCase().includes(q)) return false;
+    if (type === 'viss'   && !x.has_viss) return false;
+    if (type === 'noviss' &&  x.has_viss) return false;
+    if (type === 's' && x.sd !== 'singles') return false;
+    if (type === 'd' && x.sd !== 'doubles') return false;
+    return true;
+  });
+
+  const nullLast = (a, b) => {
+    if (a.accuracy == null && b.accuracy == null) return 0;
+    if (a.accuracy == null) return 1;
+    if (b.accuracy == null) return -1;
+    return 0;
+  };
+
+  if (sort === 'acc_asc')  items.sort((a,b) => nullLast(a,b) || a.accuracy - b.accuracy);
+  if (sort === 'acc_desc') items.sort((a,b) => nullLast(a,b) || b.accuracy - a.accuracy);
+  if (sort === 'name')     items.sort((a,b) => a.shortname.localeCompare(b.shortname));
+  if (sort === 'lvl')      items.sort((a,b) => parseInt(b.level||0) - parseInt(a.level||0));
+  return items;
+}
+
+function badge(x) {
+  if (!x.has_viss) return `<span class="nv">Sin vis-ss</span>`;
+  if (x.accuracy == null) return `<span class="abadge an">?</span>`;
+  const c = x.accuracy >= 90 ? 'ah' : x.accuracy >= 75 ? 'am' : 'al';
+  return `<span class="abadge ${c}">${x.accuracy.toFixed(1)}%</span>`;
+}
+
+function renderList() {
+  const items = filtered();
+  document.getElementById('chartList').innerHTML = items.map(x => `
+    <div class="ci ${x.shortname === activeShortname ? 'active' : ''}" onclick="selectChart('${x.shortname}')">
+      <div style="flex:1;min-width:0">
+        <div class="ci-name">${x.title || x.shortname}</div>
+        <div class="ci-meta">${x.sd[0].toUpperCase()}${x.level} · ${x.pack||''}</div>
+      </div>
+      ${badge(x)}
+    </div>`).join('') || `<div style="padding:20px;color:var(--muted);text-align:center">Sin resultados</div>`;
+}
+
+['q','fsort','ftype'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', renderList);
+  el.addEventListener('change', renderList);
+});
+
+// ────────────────────────────────────────────────────────────────
+// CHART SELECTION + RENDERING
+// ────────────────────────────────────────────────────────────────
+let leftViz = null, rightViz = null;
+let unsyncFns = null;
+let playInterval = null;
+let isPlaying = false;
+let activeScrollEl = null;
+
+function stopPlay() {
+  if (playInterval) { clearInterval(playInterval); playInterval = null; }
+  isPlaying = false;
+  const btn = document.getElementById('playBtn');
+  if (btn) { btn.textContent = '▶'; btn.className = 'pbtn'; }
+}
+
+function startPlay() {
+  stopPlay();
+  if (!activeScrollEl) return;
+  isPlaying = true;
+  playInterval = setInterval(() => {
+    activeScrollEl.scrollTop += globalPxPerSec / 30; // ~30fps
+  }, 33);
+  const btn = document.getElementById('playBtn');
+  if (btn) { btn.textContent = '⏸'; btn.className = 'pbtn on'; }
+}
+
+function togglePlay() {
+  isPlaying ? stopPlay() : startPlay();
+}
+
+function goToTop() {
+  stopPlay();
+  if (leftViz  && leftViz.scrollEl)  leftViz.scrollEl.scrollTop  = 0;
+  if (rightViz && rightViz.scrollEl) rightViz.scrollEl.scrollTop = 0;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
+const speedSlider = document.getElementById('speedSlider');
+const speedVal    = document.getElementById('speedVal');
+speedSlider.addEventListener('input', () => {
+  globalPxPerSec = parseInt(speedSlider.value);
+  speedVal.textContent = globalPxPerSec + 'px/s';
+  if (activeShortname) selectChart(activeShortname);
+});
+
+async function selectChart(shortname) {
+  activeShortname = shortname;
+  renderList();
+  stopPlay();
+
+  // Tear down previous
+  if (leftViz)  { leftViz.destroy();  leftViz  = null; }
+  if (rightViz) { rightViz.destroy(); rightViz = null; }
+  if (unsyncFns) { unsyncFns(); unsyncFns = null; }
+
+  const entry = INDEX.find(x => x.shortname === shortname);
+  const canvasArea = document.getElementById('canvases');
+  canvasArea.innerHTML = `<div class="loading"><span class="spin"></span>Cargando…</div>`;
+
+  // Load JSONs in parallel
+  let genJson = null, origJson = null;
+  await Promise.all([
+    fetch(`generated/${shortname}.json`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => genJson = d).catch(() => {}),
+    entry.has_viss
+      ? fetch(`origin_viss/${shortname}.json`)
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(d => origJson = d).catch(() => {})
+      : Promise.resolve(),
+  ]);
+
+  // Compute diff
+  const { genDiffSet, origDiffSet, correct, total } = computeDiff(genJson, origJson);
+  const acc = total > 0 ? (correct / total * 100) : null;
+
+  // ── Update header ──
+  document.getElementById('vhTitle').textContent = entry.title || shortname;
+  const accColor = acc == null ? 'var(--muted)' : acc >= 90 ? 'var(--green)' : acc >= 75 ? 'var(--orange)' : 'var(--red)';
+  document.getElementById('vhStats').innerHTML = `
+    ${acc != null ? `<div class="vstat"><span class="v" style="color:${accColor}">${acc.toFixed(1)}%</span><span class="l">Accuracy</span></div>` : ''}
+    ${total > 0  ? `<div class="vstat"><span class="v" style="color:var(--red)">${total - correct}</span><span class="l">Diffs</span></div>` : ''}
+    <div class="vstat"><span class="v" style="color:var(--blue)">${genJson ? (genJson[0]||[]).length : '?'}</span><span class="l">Arrows</span></div>
+    <span class="sync-info">⇅ scroll sincronizado</span>`;
+
+  // ── Build two panes ──
+  canvasArea.innerHTML = `
+    <div class="chart-pane">
+      <div class="pane-label" style="border-left:3px solid var(--gold)">
+        👤 vis-ss — Anotación manual
+        ${!origJson ? '<span style="color:var(--purple);font-size:10px;margin-left:4px">No disponible</span>' : ''}
+      </div>
+      <div class="pane-scroll" id="scrollL">
+        <div id="innerL" style="position:relative">
+          <div id="konvaL"></div>
+        </div>
+        <div class="play-overlay">
+          <button class="pbtn" id="playBtn" onclick="togglePlay()">▶</button>
+          <button class="pbtn" onclick="goToTop()">⏮</button>
+        </div>
+      </div>
+    </div>
+    <div class="chart-pane">
+      <div class="pane-label" style="border-left:3px solid var(--blue)">
+        🤖 v8 MLX — Generado (91.4%)
+      </div>
+      <div class="pane-scroll" id="scrollR">
+        <div id="innerR" style="position:relative">
+          <div id="konvaR"></div>
+        </div>
+      </div>
+    </div>`;
+
+  const sL = document.getElementById('scrollL');
+  const sR = document.getElementById('scrollR');
+  const konvaL = document.getElementById('konvaL');
+  const konvaR = document.getElementById('konvaR');
+
+  // Create visualizers
+  if (origJson) {
+    leftViz = createVisualizer(konvaL, sL, origJson, origDiffSet);
+  } else {
+    konvaL.innerHTML = `<div style="padding:40px;color:var(--purple);text-align:center">
+      <div style="font-size:2rem;margin-bottom:8px">🔍</div>
+      Este chart no tiene anotación en vis-ss.<br>
+      <span style="font-size:12px;color:var(--muted)">No se puede comparar.</span>
+    </div>`;
+  }
+
+  if (genJson) {
+    rightViz = createVisualizer(konvaR, sR, genJson, genDiffSet);
+  } else {
+    konvaR.innerHTML = `<div style="padding:40px;color:var(--red);text-align:center">
+      <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+      No se encontró JSON generado.
+    </div>`;
+  }
+
+  // Sync scroll between panes
+  if (sL && sR) {
+    unsyncFns = syncScroll(sL, sR);
+  }
+
+  // Pick active scroll for playback (prefer left if available, else right)
+  activeScrollEl = (origJson && sL) ? sL : sR;
+
+  // Scroll to first arrow
+  if (genJson && genJson[0] && genJson[0].length > 0) {
+    const firstT = genJson[0][0][1];
+    setTimeout(() => {
+      if (activeScrollEl) activeScrollEl.scrollTop = Math.max(0, firstT * globalPxPerSec - 60);
+    }, 50);
+  }
+}
+
+// Expose to inline onclick
+window.selectChart = selectChart;
+window.togglePlay = togglePlay;
+window.goToTop = goToTop;
+
+// ── Boot ──
+loadIndex();
+</script>
+</body>
+</html>

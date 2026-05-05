@@ -232,6 +232,37 @@ ref), eso requiere un cambio en `compare_chart()`; no está en esta guía.
 
 ---
 
+## Paso 8b — Visor de comparación visual (opcional)
+
+Para ver las diferencias arrow-by-arrow de forma visual en lugar de tablas numéricas, corre el batch inference que genera los datos para el comparison viewer:
+
+```bash
+python3 cli/limbuse/infer_v8_batch.py \
+  --simfiles_dir /Users/rodrigo/dev/piu/piu_sim_files \
+  --out_dir comparations/generated \
+  --model_dir artifacts/models/visss-mlx-v8 \
+  --viss_src /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524 \
+  --sd both
+```
+
+Luego sirve la carpeta `comparations` y abre el visor:
+
+```bash
+cd /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/comparations
+python3 -m http.server 8080
+# Abre http://localhost:8080/comparation.html
+```
+
+**Requisito:** debe existir el symlink de imágenes:
+```bash
+ln -s /Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/images \
+       /Users/rodrigo/dev/piu/piu-annotate_to_label_piu/comparations/images
+```
+
+El visor muestra dos instancias del chart sincronizadas: izquierda = vis-ss (anotación manual), derecha = v8 MLX (generado). Las flechas con limb diferente se resaltan en rojo, y puedes scrollear sincronizado o darle play con `Space`.
+
+---
+
 ## Paso 9 — Sync a piulatam (opcional)
 
 ```bash
