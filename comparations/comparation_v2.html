@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-model Comparison Viewer v2</title>
+<script src="https://cdn.jsdelivr.net/npm/konva@9/konva.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --bg4: #2d333b;
+  --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+  --blue: #58a6ff; --green: #3fb950; --orange: #f0883e;
+  --red: #f85149; --gold: #ffd700; --purple: #a371f7;
+  --pad-w: 64px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; overflow: hidden; }
+.app { display: grid; grid-template-columns: 280px 1fr 240px; height: 100vh; overflow: hidden; }
+
+/* Left sidebar: chart list */
+.sidebar { background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.s-header { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.s-header h1 { font-size: 0.9rem; }
+.s-header .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.filters { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.filters input, .filters select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 5px 7px; font-size: 12px; width: 100%; }
+.list-wrap { flex: 1; overflow-y: auto; }
+.ci { padding: 6px 10px; border-bottom: 1px solid rgba(48,54,61,.5); cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.ci:hover { background: var(--bg2); }
+.ci.active { background: rgba(88,166,255,.1); border-left: 3px solid var(--blue); }
+.ci-name { flex: 1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.acc-tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: 700; }
+.acc-h { background: rgba(63,185,80,.18); color: var(--green); }
+.acc-m { background: rgba(240,136,62,.18); color: var(--orange); }
+.acc-l { background: rgba(248,81,73,.18); color: var(--red); }
+.acc-n { background: rgba(107,114,128,.18); color: var(--muted); }
+
+/* Center: viewer area */
+.viewer-area { display: flex; flex-direction: column; overflow: hidden; }
+.viewer-header { padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.vh-title { flex: 1; font-weight: 700; font-size: 0.9rem; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.controls { display: flex; gap: 6px; align-items: center; }
+.controls input[type=number], .controls select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+.controls input[type=number] { width: 70px; }
+.controls .speed input { width: 70px; accent-color: var(--blue); vertical-align: middle; }
+.btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn:hover { background: var(--bg4); }
+.btn.on { background: rgba(88,166,255,.2); border-color: var(--blue); }
+.canvases { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; overflow: hidden; }
+.chart-pane { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+.chart-pane:last-child { border-right: none; }
+.pane-label { padding: 4px 10px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; display: flex; gap: 6px; align-items: center; }
+.pane-acc { color: var(--muted); font-weight: 400; font-size: 10px; margin-left: auto; }
+.pane-scroll { flex: 1; overflow: auto; position: relative; background: rgba(46,46,46,.65); }
+
+/* Right sidebar: diff list + confusion */
+.rightbar { background: var(--bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.rb-section { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; }
+.rb-section h3 { font-size: 11px; padding: 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.5px; }
+.diff-list { flex: 1; overflow-y: auto; max-height: 60vh; }
+.diff-item { padding: 5px 10px; border-bottom: 1px solid rgba(48,54,61,.5); cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+.diff-item:hover { background: var(--bg2); }
+.diff-time { color: var(--muted); font-variant-numeric: tabular-nums; width: 56px; }
+.diff-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; }
+.diff-models { flex: 1; display: flex; gap: 4px; font-size: 10px; }
+.diff-models span { padding: 1px 4px; border-radius: 3px; background: var(--bg3); }
+.diff-models span.gt { background: rgba(63,185,80,.18); color: var(--green); font-weight: 700; }
+.diff-models span.bad { background: rgba(248,81,73,.18); color: var(--red); }
+.diff-models span.ok { background: rgba(88,166,255,.10); color: var(--blue); }
+
+.conf-grid { display: grid; grid-template-columns: 28px 1fr 1fr 1fr; gap: 1px; padding: 8px; background: var(--bg2); }
+.conf-grid .cell { background: var(--bg3); padding: 4px; text-align: center; font-size: 10px; }
+.conf-grid .lbl { background: var(--bg2); color: var(--muted); font-weight: 700; }
+.conf-grid .hi { background: rgba(63,185,80,.25); color: var(--green); font-weight: 700; }
+.conf-grid .err { background: rgba(248,81,73,.18); color: var(--red); }
+
+.empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); padding: 20px; text-align: center; }
+
+/* Playback */
+.play-overlay { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; gap: 6px; background: rgba(0,0,0,.82); padding: 6px 10px; border-radius: 8px; backdrop-filter: blur(6px); }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- LEFT SIDEBAR -->
+<aside class="sidebar">
+  <div class="s-header">
+    <h1>Comparison Viewer v2</h1>
+    <div class="sub" id="globalStats">Loading…</div>
+  </div>
+  <div class="filters">
+    <input type="text" id="searchInput" placeholder="Filter charts (song / level / pack)">
+    <select id="modeFilter">
+      <option value="">All modes</option>
+      <option value="singles">Singles</option>
+      <option value="doubles">Doubles</option>
+    </select>
+    <select id="patternFilter">
+      <option value="">All patterns</option>
+      <option value="tap">Taps</option>
+      <option value="jack">Jacks</option>
+      <option value="triple">Triples</option>
+      <option value="bracket_ll">Brackets LL</option>
+      <option value="bracket_rr">Brackets RR</option>
+      <option value="bracket_lr">Brackets LR</option>
+      <option value="jump">Jumps</option>
+      <option value="hold_release">Hold releases</option>
+    </select>
+  </div>
+  <div class="list-wrap" id="chartList"></div>
+</aside>
+
+<!-- VIEWER -->
+<main class="viewer-area">
+  <div class="viewer-header">
+    <div class="vh-title" id="vhTitle">Select a chart</div>
+    <div class="controls">
+      <label>Time
+        <input type="number" id="seekTime" min="0" step="0.5" placeholder="sec">
+      </label>
+      <button class="btn" id="seekBtn">Go</button>
+      <button class="btn" id="playBtn">▶</button>
+      <span class="speed">Speed <input type="range" id="speedInp" min="0.25" max="4" step="0.25" value="1"><span id="speedVal">1×</span></span>
+    </div>
+  </div>
+  <div class="canvases" id="canvasGrid"></div>
+</main>
+
+<!-- RIGHT SIDEBAR -->
+<aside class="rightbar">
+  <div class="rb-section">
+    <h3>Per-pattern accuracy (current chart)</h3>
+    <div id="patStats" style="padding: 8px 10px; font-size: 11px; color: var(--muted);"></div>
+  </div>
+  <div class="rb-section">
+    <h3>Confusion matrix L/R/E</h3>
+    <div class="conf-grid" id="confGrid"></div>
+  </div>
+  <div class="rb-section" style="flex: 1; min-height: 0;">
+    <h3>Differences (click to jump)</h3>
+    <div class="diff-list" id="diffList"></div>
+  </div>
+</aside>
+
+</div>
+
+<script>
+// ============================================================================
+// Config: URL params decide which model dirs to load.
+// Example: comparation_v2.html?models=v8:generated_v8,v9:generated_v9&ref=origin_viss
+// Defaults match the existing layout.
+// ============================================================================
+const params = new URLSearchParams(location.search);
+const MODEL_SPECS = (params.get('models') || 'generated:generated')
+  .split(',').map(s => {
+    const [name, dir] = s.split(':');
+    return { name, dir };
+  });
+const REF_DIR = params.get('ref') || 'origin_viss';
+
+const PANELS_SINGLES = 5;
+const PANELS_DOUBLES = 10;
+const ROW_H = 24;          // pixels per second-tick
+
+// Pattern bucket detection (simplified mirror of compare_models.py)
+function classifyPatterns(arrows, idx) {
+  const tags = ['all'];
+  const [panel, t, limb] = arrows[idx];
+  // Look for same-time arrows
+  const sameT = arrows.filter(a => Math.abs(a[1] - t) < 1e-3);
+  const nDp = sameT.length;
+  if (nDp === 1) {
+    tags.push('tap');
+    // Jack: same panel within window
+    const prev = arrows.slice(0, idx).reverse().find(a => a[0] === panel);
+    if (prev && (t - prev[1]) < 1.0) tags.push('jack');
+  } else if (nDp === 2) {
+    // brackets vs jump heuristic from panel distance — rough
+    const panels = sameT.map(a => a[0]).sort();
+    const close = panels[1] - panels[0] <= 2;
+    if (close) {
+      const limbs = sameT.map(a => a[2]).join('');
+      if (limbs === 'll') tags.push('bracket_ll');
+      else if (limbs === 'rr') tags.push('bracket_rr');
+      else tags.push('bracket_lr');
+    } else {
+      tags.push('jump');
+    }
+  } else if (nDp >= 3) {
+    tags.push('triple');
+  }
+  return tags;
+}
+
+// ============================================================================
+// State
+// ============================================================================
+let allCharts = [];   // from index.json
+let currentChart = null;
+let currentData = {}; // { modelName: arrows-array, ref: arrows-array }
+let currentRefArrows = null;
+let stages = {};      // konva stages by paneName
+let layers = {};
+let scrolls = {};
+let playState = { playing: false, t0: 0, startedAt: 0, speed: 1.0 };
+
+// ============================================================================
+// Bootstrap
+// ============================================================================
+async function loadIndex() {
+  const res = await fetch('index.json');
+  allCharts = await res.json();
+  renderChartList();
+  document.getElementById('globalStats').textContent =
+    `${allCharts.length} charts · ${MODEL_SPECS.length} model${MODEL_SPECS.length>1?'s':''}`;
+}
+
+function renderChartList() {
+  const wrap = document.getElementById('chartList');
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const mode = document.getElementById('modeFilter').value;
+  wrap.innerHTML = '';
+  const filtered = allCharts.filter(c => {
+    if (mode && c.sd !== mode) return false;
+    if (q && !(c.shortname + ' ' + c.title + ' ' + c.pack).toLowerCase().includes(q)) return false;
+    return true;
+  }).slice(0, 600);
+  for (const c of filtered) {
+    const div = document.createElement('div');
+    div.className = 'ci';
+    if (currentChart?.shortname === c.shortname) div.classList.add('active');
+    div.innerHTML = `
+      <div class="ci-name">${escapeHtml(c.title || c.shortname)}</div>
+      <div class="ci-meta">${c.sd[0].toUpperCase()}${c.level || '?'}</div>
+      <span class="acc-tag ${accTagClass(c.accuracy)}">${c.accuracy == null ? '—' : Math.round(c.accuracy * 100) + '%'}</span>
+    `;
+    div.onclick = () => selectChart(c);
+    wrap.appendChild(div);
+  }
+}
+
+function accTagClass(a) {
+  if (a == null) return 'acc-n';
+  if (a >= 0.92) return 'acc-h';
+  if (a >= 0.80) return 'acc-m';
+  return 'acc-l';
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+// ============================================================================
+// Chart selection
+// ============================================================================
+async function selectChart(c) {
+  currentChart = c;
+  document.querySelectorAll('.ci.active').forEach(el => el.classList.remove('active'));
+  document.querySelector('.ci')?.classList.remove('active');
+  for (const el of document.querySelectorAll('.ci')) {
+    if (el.querySelector('.ci-name').textContent === (c.title || c.shortname)) {
+      el.classList.add('active');
+      break;
+    }
+  }
+  document.getElementById('vhTitle').textContent = `${c.title || c.shortname} · ${c.sd} · L${c.level || '?'}`;
+
+  currentData = {};
+  for (const spec of MODEL_SPECS) {
+    try {
+      const r = await fetch(`${spec.dir}/${c.shortname}.json`);
+      if (r.ok) currentData[spec.name] = await r.json();
+    } catch (_) {}
+  }
+  try {
+    const r = await fetch(`${REF_DIR}/${c.shortname}.json`);
+    if (r.ok) currentRefArrows = (await r.json())[0];
+    else currentRefArrows = null;
+  } catch (_) {
+    currentRefArrows = null;
+  }
+
+  buildPanes();
+  renderAll();
+  computeAndRenderDiffs();
+  renderConfusion();
+  renderPatternStats();
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+function buildPanes() {
+  const grid = document.getElementById('canvasGrid');
+  grid.innerHTML = '';
+  stages = {}; layers = {}; scrolls = {};
+  const panes = [];
+  if (currentRefArrows) panes.push({ name: '_ref', label: 'vis-ss (GT)', isRef: true });
+  for (const spec of MODEL_SPECS) panes.push({ name: spec.name, label: spec.name, isRef: false });
+  for (const pn of panes) {
+    const pane = document.createElement('div');
+    pane.className = 'chart-pane';
+    pane.innerHTML = `
+      <div class="pane-label">${escapeHtml(pn.label)}<span class="pane-acc" id="acc-${pn.name}"></span></div>
+      <div class="pane-scroll" id="scroll-${pn.name}"><div id="stage-${pn.name}" style="position: relative;"></div></div>
+    `;
+    grid.appendChild(pane);
+    const sd = currentChart.sd === 'singles' ? PANELS_SINGLES : PANELS_DOUBLES;
+    const w = sd * 32 + 32;
+    const arrows = pn.isRef ? currentRefArrows : (currentData[pn.name]?.[0] || []);
+    const maxT = arrows.length ? arrows[arrows.length - 1][1] : 60;
+    const h = Math.ceil((maxT + 5) * ROW_H);
+    const stage = new Konva.Stage({ container: 'stage-' + pn.name, width: w, height: h });
+    const layer = new Konva.Layer();
+    stage.add(layer);
+    stages[pn.name] = stage; layers[pn.name] = layer;
+    scrolls[pn.name] = document.getElementById('scroll-' + pn.name);
+  }
+  // Sync scrolling across panes
+  for (const pn of panes) {
+    scrolls[pn.name].addEventListener('scroll', e => {
+      const top = e.target.scrollTop;
+      for (const pn2 of panes) {
+        if (pn2.name === pn.name) continue;
+        scrolls[pn2.name].scrollTop = top;
+      }
+    });
+  }
+}
+
+const PANEL_COLORS_S = ['#58a6ff', '#a371f7', '#3fb950', '#f0883e', '#f85149'];
+const PANEL_COLORS_D = ['#58a6ff', '#a371f7', '#3fb950', '#f0883e', '#f85149',
+                        '#58a6ff', '#a371f7', '#3fb950', '#f0883e', '#f85149'];
+const LIMB_COLOR = { l: '#58a6ff', r: '#f85149', e: '#a371f7' };
+
+function renderAll() {
+  for (const [name, layer] of Object.entries(layers)) {
+    layer.destroyChildren();
+    const arrows = (name === '_ref') ? currentRefArrows : (currentData[name]?.[0] || []);
+    const sd = currentChart.sd === 'singles' ? PANELS_SINGLES : PANELS_DOUBLES;
+    const colors = sd === PANELS_SINGLES ? PANEL_COLORS_S : PANEL_COLORS_D;
+    for (const [panel, t, limb] of arrows) {
+      const x = 16 + panel * 32;
+      const y = t * ROW_H + 12;
+      layer.add(new Konva.Rect({
+        x: x, y: y - 6,
+        width: 24, height: 12,
+        fill: colors[panel] || '#888',
+        stroke: LIMB_COLOR[limb] || '#fff',
+        strokeWidth: 2,
+        cornerRadius: 3,
+      }));
+      layer.add(new Konva.Text({
+        x: x, y: y - 5,
+        width: 24, height: 12,
+        text: (limb || '?').toUpperCase(),
+        fontSize: 10, fontStyle: 'bold',
+        fill: '#fff', align: 'center',
+      }));
+    }
+    layer.draw();
+    const acc = computeAcc(name);
+    const accEl = document.getElementById('acc-' + name);
+    if (accEl) accEl.textContent = acc == null ? '' : `${(acc * 100).toFixed(1)}%`;
+  }
+}
+
+function computeAcc(name) {
+  if (name === '_ref' || !currentRefArrows) return null;
+  const arrows = currentData[name]?.[0];
+  if (!arrows) return null;
+  const refByKey = new Map();
+  for (const r of currentRefArrows) refByKey.set(`${r[0]}_${r[1].toFixed(4)}`, r[2]);
+  let n = 0, c = 0;
+  for (const a of arrows) {
+    const g = refByKey.get(`${a[0]}_${a[1].toFixed(4)}`);
+    if (g === undefined) continue;
+    n++;
+    if (g === a[2]) c++;
+  }
+  return n ? c / n : null;
+}
+
+// ============================================================================
+// Diff list + confusion
+// ============================================================================
+let currentDiffs = [];
+
+function computeAndRenderDiffs() {
+  currentDiffs = [];
+  if (!currentRefArrows) {
+    document.getElementById('diffList').innerHTML = '<div class="empty">No reference</div>';
+    return;
+  }
+  const patternFilter = document.getElementById('patternFilter').value;
+  for (let i = 0; i < currentRefArrows.length; i++) {
+    const [panel, t, refLimb] = currentRefArrows[i];
+    const modelPreds = {};
+    let anyDiff = false;
+    for (const spec of MODEL_SPECS) {
+      const arr = currentData[spec.name]?.[0];
+      if (!arr) continue;
+      const match = arr.find(a => a[0] === panel && Math.abs(a[1] - t) < 1e-3);
+      const pred = match ? match[2] : '?';
+      modelPreds[spec.name] = pred;
+      if (pred !== refLimb) anyDiff = true;
+    }
+    if (!anyDiff) continue;
+    const tags = classifyPatterns(currentRefArrows, i);
+    if (patternFilter && !tags.includes(patternFilter)) continue;
+    currentDiffs.push({ idx: i, panel, t, refLimb, modelPreds, tags });
+  }
+  renderDiffList();
+}
+
+function renderDiffList() {
+  const list = document.getElementById('diffList');
+  if (!currentDiffs.length) {
+    list.innerHTML = '<div class="empty">No diffs</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const d of currentDiffs.slice(0, 500)) {
+    const item = document.createElement('div');
+    item.className = 'diff-item';
+    const modelsHtml = MODEL_SPECS.map(s => {
+      const p = d.modelPreds[s.name] ?? '?';
+      const cls = p === d.refLimb ? 'ok' : 'bad';
+      return `<span class="${cls}" title="${escapeHtml(s.name)}">${p}</span>`;
+    }).join('');
+    const tagHtml = d.tags.filter(t => t !== 'all').map(t => `<span class="diff-tag">${t}</span>`).slice(0, 2).join(' ');
+    item.innerHTML = `
+      <span class="diff-time">${d.t.toFixed(2)}s</span>
+      <span class="diff-models"><span class="gt" title="GT">${d.refLimb}</span>${modelsHtml}</span>
+      ${tagHtml}
+    `;
+    item.onclick = () => jumpTo(d.t);
+    list.appendChild(item);
+  }
+}
+
+function renderConfusion() {
+  const grid = document.getElementById('confGrid');
+  grid.innerHTML = '';
+  // Aggregate confusion of first model vs ref
+  const firstModel = MODEL_SPECS[0]?.name;
+  if (!firstModel || !currentRefArrows || !currentData[firstModel]) {
+    grid.innerHTML = '<div class="empty" style="grid-column: 1 / -1;">No data</div>';
+    return;
+  }
+  const arrows = currentData[firstModel][0];
+  const conf = [[0,0,0],[0,0,0],[0,0,0]];
+  const lookup = new Map();
+  for (const a of arrows) lookup.set(`${a[0]}_${a[1].toFixed(4)}`, a[2]);
+  const L = {l:0, r:1, e:2};
+  for (const r of currentRefArrows) {
+    const g = L[r[2]]; const p = L[lookup.get(`${r[0]}_${r[1].toFixed(4)}`)];
+    if (g === undefined || p === undefined) continue;
+    conf[g][p]++;
+  }
+  const labels = ['', 'L', 'R', 'E'];
+  for (let i = 0; i < labels.length; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell lbl';
+    cell.textContent = labels[i];
+    grid.appendChild(cell);
+  }
+  for (let i = 0; i < 3; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell lbl';
+    cell.textContent = ['L','R','E'][i];
+    grid.appendChild(cell);
+    const total = conf[i].reduce((a,b)=>a+b, 0);
+    for (let j = 0; j < 3; j++) {
+      const c = document.createElement('div');
+      c.className = 'cell ' + (i === j ? 'hi' : (conf[i][j] > 0 ? 'err' : ''));
+      c.textContent = total ? `${(conf[i][j]/total*100).toFixed(0)}%` : '—';
+      c.title = `${conf[i][j]}/${total}`;
+      grid.appendChild(c);
+    }
+  }
+}
+
+function renderPatternStats() {
+  const wrap = document.getElementById('patStats');
+  if (!currentRefArrows) { wrap.textContent = 'No reference'; return; }
+  const buckets = {};
+  for (let i = 0; i < currentRefArrows.length; i++) {
+    const tags = classifyPatterns(currentRefArrows, i);
+    for (const t of tags) {
+      buckets[t] = buckets[t] || { total: 0, correct: {} };
+      buckets[t].total++;
+      for (const spec of MODEL_SPECS) {
+        const arr = currentData[spec.name]?.[0];
+        if (!arr) continue;
+        const a = arr.find(x => x[0] === currentRefArrows[i][0] && Math.abs(x[1] - currentRefArrows[i][1]) < 1e-3);
+        if (a && a[2] === currentRefArrows[i][2]) {
+          buckets[t].correct[spec.name] = (buckets[t].correct[spec.name] || 0) + 1;
+        }
+      }
+    }
+  }
+  let html = '<table style="width:100%;font-size:11px;border-collapse:collapse;"><thead><tr>';
+  html += '<th style="text-align:left;">pattern</th><th>n</th>';
+  for (const s of MODEL_SPECS) html += `<th title="${escapeHtml(s.name)}">${escapeHtml(s.name.slice(0,5))}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const p of ['all','tap','jack','triple','jump','bracket_ll','bracket_rr','bracket_lr']) {
+    if (!buckets[p]) continue;
+    html += `<tr><td>${p}</td><td style="text-align:right;">${buckets[p].total}</td>`;
+    for (const s of MODEL_SPECS) {
+      const c = buckets[p].correct[s.name] || 0;
+      const a = buckets[p].total ? c / buckets[p].total : 0;
+      const color = a >= 0.95 ? 'var(--green)' : a >= 0.85 ? 'var(--gold)' : 'var(--red)';
+      html += `<td style="text-align:right;color:${color};">${(a*100).toFixed(0)}%</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ============================================================================
+// Seek + playback
+// ============================================================================
+function jumpTo(t) {
+  const y = t * ROW_H + 12;
+  for (const s of Object.values(scrolls)) {
+    s.scrollTop = Math.max(0, y - s.clientHeight / 2);
+  }
+}
+
+document.getElementById('seekBtn').onclick = () => {
+  const t = parseFloat(document.getElementById('seekTime').value);
+  if (!isNaN(t)) jumpTo(t);
+};
+document.getElementById('seekTime').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('seekBtn').click();
+});
+document.getElementById('searchInput').addEventListener('input', renderChartList);
+document.getElementById('modeFilter').addEventListener('change', renderChartList);
+document.getElementById('patternFilter').addEventListener('change', computeAndRenderDiffs);
+
+document.getElementById('playBtn').onclick = () => {
+  playState.playing = !playState.playing;
+  document.getElementById('playBtn').textContent = playState.playing ? '⏸' : '▶';
+  if (playState.playing) {
+    const firstScroll = Object.values(scrolls)[0];
+    playState.t0 = firstScroll ? firstScroll.scrollTop / ROW_H : 0;
+    playState.startedAt = performance.now();
+    requestAnimationFrame(animate);
+  }
+};
+document.getElementById('speedInp').addEventListener('input', e => {
+  playState.speed = parseFloat(e.target.value);
+  document.getElementById('speedVal').textContent = playState.speed + '×';
+  if (playState.playing) {
+    const firstScroll = Object.values(scrolls)[0];
+    playState.t0 = firstScroll ? firstScroll.scrollTop / ROW_H : 0;
+    playState.startedAt = performance.now();
+  }
+});
+function animate(ts) {
+  if (!playState.playing) return;
+  const elapsed = (ts - playState.startedAt) / 1000;
+  const t = playState.t0 + elapsed * playState.speed;
+  jumpTo(t);
+  requestAnimationFrame(animate);
+}
+
+// Boot
+loadIndex();
+</script>
+</body>
+</html>

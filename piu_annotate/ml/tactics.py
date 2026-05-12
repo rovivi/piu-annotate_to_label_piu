@@ -626,9 +626,16 @@ class Tactician:
     """
         Model predictions
     """
+    def _is_transformer(self) -> bool:
+        # ``is_transformer`` is set by the new ModelSuite; fall back to
+        # legacy model_type check for older suites.
+        if getattr(self.models, 'is_transformer', None) is not None:
+            return self.models.is_transformer
+        return getattr(self.models, 'model_type', 'lightgbm') in ('mlx', 'torch')
+
     @functools.lru_cache
     def predict_arrow(self, logp: bool = False) -> NDArray:
-        if getattr(self.models, 'model_type', 'lightgbm') == 'mlx':
+        if self._is_transformer():
             points = self.fcs.get_raw_features()
         else:
             points = self.fcs.featurize_arrows_with_context()
@@ -638,9 +645,17 @@ class Tactician:
             return self.models.model_arrows_to_limb.predict(points)
 
     def predict_arrowlimbs(self, limb_array: NDArray, logp: bool = False) -> NDArray:
-        # Note: MLX fallback doesn't use arrowlimbs yet, but to be safe:
-        if getattr(self.models, 'model_type', 'lightgbm') == 'mlx':
-            return self.predict_arrow(logp=logp)
+        if self._is_transformer():
+            # When a RefineModel (two-pass coarse→refine) is loaded, ModelSuite
+            # wires it under ``model_arrowlimbs_to_limb`` and ``model_arrows_to_limb``
+            # points at the coarse model only. Calling .predict() here runs the
+            # full coarse→refine cascade. When no refine is available, the suite
+            # sets both attributes to the same coarse model, so this just
+            # re-runs the coarse predict (numerically equivalent to predict_arrow).
+            points = self.fcs.get_raw_features()
+            if logp:
+                return self.models.model_arrowlimbs_to_limb.predict_log_prob(points)
+            return self.models.model_arrowlimbs_to_limb.predict(points)
         else:
             points = self.fcs.featurize_arrowlimbs_with_context(limb_array)
             if logp:
@@ -650,7 +665,7 @@ class Tactician:
 
     @functools.lru_cache
     def predict_matchnext(self, logp: bool = False) -> NDArray:
-        if getattr(self.models, 'model_type', 'lightgbm') == 'mlx':
+        if self._is_transformer():
             points = self.fcs.get_raw_features()
         else:
             points = self.fcs.featurize_arrows_with_context()
@@ -661,7 +676,7 @@ class Tactician:
 
     @functools.lru_cache
     def predict_matchprev(self, logp: bool = False) -> NDArray:
-        if getattr(self.models, 'model_type', 'lightgbm') == 'mlx':
+        if self._is_transformer():
             points = self.fcs.get_raw_features()
         else:
             points = self.fcs.featurize_arrows_with_context()

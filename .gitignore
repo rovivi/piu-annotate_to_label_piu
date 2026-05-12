@@ -58,3 +58,14 @@ htmlcov/
 
 # ruff
 .ruff_cache/
+
+# Training / inference logs
+*.log
+logs/
+
+# One-off generated HTML reports (use scripts/generate_comparison_report.py instead)
+new_architecture_report.html
+v8_model_comparison_report.html
+v9_ft_model_comparison_report.html
+benchmark_charts.png
+benchmark_results.txt

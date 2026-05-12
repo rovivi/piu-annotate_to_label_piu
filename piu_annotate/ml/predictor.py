@@ -21,8 +21,13 @@ def predict(
     reasoner = PatternReasoner(cs, verbose = verbose)
     tactics = Tactician(cs, fcs, model_suite, verbose = verbose)
 
-    if model_suite.model_type == 'mlx':
-        # Pure MLX path: Trust the model's sequence awareness
+    is_transformer = getattr(model_suite, 'is_transformer', None)
+    if is_transformer is None:
+        is_transformer = getattr(model_suite, 'model_type', 'lightgbm') in ('mlx', 'torch')
+
+    if is_transformer:
+        # Transformer path: trust the model's sequence awareness, skip the
+        # heavy reasoner/beam-search loop used for LGBM.
         pred_limbs = tactics.initial_predict()
     else:
         # Legacy path for LightGBM

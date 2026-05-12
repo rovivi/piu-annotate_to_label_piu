@@ -1,329 +1,419 @@
 from __future__ import annotations
-"""
-compare_models.py
+"""compare_models.py — multi-model evaluation against vis-ss ground truth.
 
-Re-runs limb inference with the NEW models on the 54 baseline charts
-(30 worst accuracy + 30 hardest level) and compares against the OLD
-processed_db results and vis-ss ground truth.
+Runs inference with N model configurations on a baseline chart set and prints
++ writes JSON tables with:
+    - Per-pattern accuracy (tap / jack / triple / bracket_LL / bracket_RR /
+      bracket_LR / jump / hold_release / stream)
+    - Confusion matrix L/R/E
+    - Per-difficulty-level accuracy
+    - Per-chart summary
 
-Usage:
-    python scripts/compare_models.py
-    python scripts/compare_models.py --baseline artifacts/benchmark_baseline_60.json
-    python scripts/compare_models.py --plot
+Usage examples
+--------------
+    # Single model, legacy-style
+    python scripts/compare_models.py --models lgbm:artifacts/models/visss
+
+    # Three models, plot + JSON output
+    python scripts/compare_models.py \\
+        --models lgbm:artifacts/models/visss \\
+        --models mlx_v8:artifacts/models/visss-mlx-v8 \\
+        --models torch:artifacts/models/visss-torch \\
+        --baseline artifacts/benchmark_baseline_60.json \\
+        --output_json artifacts/comparator/multi_compare.json \\
+        --plot artifacts/comparator/multi_compare.png
+
+Each ``--models`` value is ``name:dir`` where the directory is fed into
+``hargs['model.dir']``. The backend is auto-detected by looking at filenames:
+
+    - ``*-lightgbm-best.safetensors`` or ``*.txt`` → ``lightgbm``
+    - ``*-mlx-best.safetensors``                  → ``mlx``
+    - ``*-torch-best.safetensors``                → ``torch``
+
+Override with ``name:dir:backend`` if needed.
 """
 import argparse
 import json
 import os
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 import numpy as np
-from collections import defaultdict
-from hackerargs import args as hargs
 from loguru import logger
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from hackerargs import args as hargs
 
 from piu_annotate.formats.chart import ChartStruct
 from piu_annotate.ml.models import ModelSuite
 from piu_annotate.ml import predictor as ml_predictor
 
-VIS_DIR   = '/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
-PROC_DIR  = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/processed_db'
-CSV_DIR   = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524'
-MODEL_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/models/visss'
-BASELINE  = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/benchmark_baseline_60.json'
+
+VIS_DIR = '/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524'
+CSV_DIR = '/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524'
+BASELINE = 'artifacts/benchmark_baseline_60.json'
 
 
-def setup_model_args(sd: str):
-    hargs['model'] = 'lightgbm'
-    hargs['model.dir'] = MODEL_DIR
-    hargs[f'model.arrows_to_limb-{sd}']    = f'{sd}-arrows_to_limb.txt'
-    hargs[f'model.arrowlimbs_to_limb-{sd}'] = f'{sd}-arrowlimbs_to_limb.txt'
-    hargs[f'model.arrows_to_matchnext-{sd}'] = f'{sd}-arrows_to_matchnext.txt'
-    hargs[f'model.arrows_to_matchprev-{sd}'] = f'{sd}-arrows_to_matchprev.txt'
+L2I = {'l': 0, 'r': 1, 'e': 2, 'h': 1, '?': -1}
+I2L = {0: 'l', 1: 'r', 2: 'e'}
 
 
-def load_vis_index(vis_dir: str) -> dict[str, str]:
-    idx = {}
-    for fn in os.listdir(vis_dir):
-        if not fn.endswith('.json'):
-            continue
-        try:
-            d = json.load(open(os.path.join(vis_dir, fn)))
-            sn = d[2].get('shortname')
-            if sn:
-                idx[sn] = os.path.join(vis_dir, fn)
-        except Exception:
-            pass
-    return idx
+# ---------------------------------------------------------------------------
+# Backend autodetect + setup
+# ---------------------------------------------------------------------------
 
 
-def find_csv_for_shortname(shortname: str) -> str | None:
-    fname = shortname + '.csv'
-    path = os.path.join(CSV_DIR, fname)
-    return path if os.path.isfile(path) else None
+def detect_backend(model_dir: str) -> str:
+    """Sniff filenames to pick a backend."""
+    files = os.listdir(model_dir) if os.path.isdir(model_dir) else []
+    if any('-mlx-' in f for f in files):
+        return 'mlx'
+    if any('-torch-' in f for f in files):
+        return 'torch'
+    if any(f.endswith('.txt') for f in files):
+        return 'lightgbm'
+    raise RuntimeError(f'Could not auto-detect backend in {model_dir}; files: {files[:10]}')
 
 
-def score_limbs_vs_ref(pred_limbs_binary, ref_taps, pred_coords) -> dict:
-    """Compare predicted limbs against vis-ss reference taps."""
-    L2I = {'l': 0, 'r': 1, 'e': 0, 'h': 1, '?': -1}
-    stats = defaultdict(int)
-
-    if len(pred_limbs_binary) != len(pred_coords):
-        return stats
-
-    ref_by_time: dict[float, list] = defaultdict(list)
-    for tap in ref_taps:
-        ref_by_time[round(tap[1], 5)].append(tap)
-
-    time_count = defaultdict(int)
-    for tap in ref_taps:
-        time_count[round(tap[1], 6)] += 1
-
-    prev_panel_to_time: dict[int, float] = {}
-
-    for pc_idx, pc in enumerate(pred_coords):
-        row = None
-        t_key = None
-        for tap in ref_taps:
-            if tap[0] == pc.arrow_pos:
-                t_key = round(tap[1], 5)
-                row = tap
-                break
-
-        if row is None:
-            continue
-
-        ref_limb_int = L2I.get(row[2], -1)
-        if ref_limb_int < 0:
-            continue
-
-        pred_limb_int = int(pred_limbs_binary[pc_idx])
-        correct = int(pred_limb_int == ref_limb_int)
-
-        t6 = round(row[1], 6)
-        is_triple = time_count[t6] >= 3
-        panel = pc.arrow_pos
-        prev_t = prev_panel_to_time.get(panel)
-        is_jack = prev_t is not None and abs(prev_t - row[1]) > 1e-3
-        prev_panel_to_time[panel] = row[1]
-
-        stats['tap_total'] += 1
-        stats['tap_correct'] += correct
-        if is_triple:
-            stats['triple_total'] += 1
-            stats['triple_correct'] += correct
-        if is_jack:
-            stats['jack_total'] += 1
-            stats['jack_correct'] += correct
-
-    return stats
+def setup_model_args(sd: str, model_dir: str, backend: str):
+    hargs['model'] = backend
+    hargs['model.dir'] = model_dir
+    if backend == 'lightgbm':
+        hargs[f'model.arrows_to_limb-{sd}']      = f'{sd}-arrows_to_limb.txt'
+        hargs[f'model.arrowlimbs_to_limb-{sd}']  = f'{sd}-arrowlimbs_to_limb.txt'
+        hargs[f'model.arrows_to_matchnext-{sd}'] = f'{sd}-arrows_to_matchnext.txt'
+        hargs[f'model.arrows_to_matchprev-{sd}'] = f'{sd}-arrows_to_matchprev.txt'
+    else:
+        # Transformer backends use canonical names; ModelSuite resolves them.
+        hargs[f'model.arrows_to_limb-{sd}']      = f'{sd}-arrows_to_limb-{backend}-best'
+        hargs[f'model.arrowlimbs_to_limb-{sd}']  = f'{sd}-arrowlimbs_to_limb-{backend}-best'
 
 
-def pct(n, d) -> str:
-    return 'n/a' if d == 0 else f'{100.0 * n / d:.1f}%'
+# ---------------------------------------------------------------------------
+# Pattern bucketing
+# ---------------------------------------------------------------------------
 
 
-def delta(new_val: float | None, old_val: float) -> str:
-    if new_val is None:
-        return '  n/a'
-    diff = new_val - old_val
-    sign = '+' if diff >= 0 else ''
-    return f'{sign}{diff:.1f}pp'
+PATTERN_BUCKETS = (
+    'tap', 'jack', 'triple', 'jump',
+    'bracket_ll', 'bracket_rr', 'bracket_lr',
+    'hold_release', 'stream',
+)
 
 
-def run_inference_on_csv(csv_path: str, sd: str) -> tuple | None:
-    """Run new-model inference on a single chartstructs CSV.
-    Returns (pred_limbs, pred_coords) or None on failure.
-    """
+def classify_pattern(
+    pc,
+    cs: ChartStruct,
+    fcs,
+    gt_limb_char: str,
+    time_count: dict[float, int],
+    panel_to_last_t: dict[int, float],
+) -> list[str]:
+    """Return all bucket tags that apply to this (pred_coord, ground-truth) pair."""
+    row = cs.df.iloc[pc.row_idx]
+    line = str(row['Line with active holds']).replace('`', '')
+    n_dp = sum(1 for ch in line if ch in '12')
+    t = round(float(row['Time']), 5)
+
+    tags = []
+    if n_dp == 1:
+        tags.append('tap')
+        prev_t = panel_to_last_t.get(pc.arrow_pos)
+        if prev_t is not None and abs(t - prev_t) > 1e-3:
+            tags.append('jack')
+        if 0 < t - panel_to_last_t.get(-1, t - 1e9) < 0.12:
+            tags.append('stream')
+    elif n_dp == 2:
+        # Bracket-able lookup based on featurized field — simpler than re-deriving.
+        bracketable = bool(row.get('line_is_bracketable', False)) if 'line_is_bracketable' in cs.df.columns else False
+        if bracketable:
+            if gt_limb_char == 'l':
+                tags.append('bracket_ll')
+            elif gt_limb_char == 'r':
+                tags.append('bracket_rr')
+            else:
+                tags.append('bracket_lr')
+        else:
+            tags.append('jump')
+    elif time_count.get(t, 0) >= 3:
+        tags.append('triple')
+
+    # Hold release detection — only true if the line is purely a release (3s only)
+    has_three = '3' in line
+    has_one_two = any(ch in '12' for ch in line)
+    if has_three and not has_one_two:
+        tags.append('hold_release')
+    return tags
+
+
+# ---------------------------------------------------------------------------
+# Per-model inference + scoring
+# ---------------------------------------------------------------------------
+
+
+def run_inference(csv_path: str, suite: ModelSuite) -> tuple | None:
+    """Returns (pred_limbs, labels_gt, pred_coords, fcs, cs) or None."""
     try:
         cs = ChartStruct.from_file(csv_path)
-        model_suite = ModelSuite(sd)
-        cs_out = ml_predictor.predict(cs, model_suite)
-        fcs_out = cs_out
-        pred_coords = cs.get_prediction_coordinates()
-        limb_col = cs_out.df.get('Limb annotation', None)
-        if limb_col is None:
-            return None
-        L2I = {'l': 0, 'r': 1, 'e': 0, 'h': 1, '?': 0}
-        pred_limbs = []
-        for pc in pred_coords:
-            row = cs_out.df.iloc[pc.row_idx]
-            val = row['Limb annotation']
-            if isinstance(val, str):
-                limb_char = val[pc.limb_idx] if pc.limb_idx < len(val) else 'l'
-            else:
-                limb_char = 'l'
-            pred_limbs.append(L2I.get(limb_char, 0))
-        return np.array(pred_limbs), pred_coords
+        _cs, fcs, pred_limbs = ml_predictor.predict(cs, suite)
+        labels = fcs.get_labels_from_limb_col('Limb annotation')
+        return pred_limbs, labels, fcs.pred_coords, fcs, cs
     except Exception as e:
         logger.warning(f'Inference failed for {csv_path}: {e}')
         return None
 
 
-def make_plot(results: list, out_path: str):
+def score_chart(pred_limbs, labels, pred_coords, fcs, cs) -> dict:
+    """Per-pattern + confusion stats for a single chart."""
+    pattern_total = defaultdict(int)
+    pattern_correct = defaultdict(int)
+    confusion = np.zeros((3, 3), dtype=int)  # rows=truth, cols=pred
+
+    panel_to_last_t = {}
+    time_count = defaultdict(int)
+    for pc in pred_coords:
+        t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
+        time_count[t] += 1
+
+    last_any_t = -1e9
+    for idx, pc in enumerate(pred_coords):
+        p = int(pred_limbs[idx])
+        g = int(labels[idx])
+        if 0 <= g <= 2:
+            confusion[g, p] += 1
+        gt_char = I2L.get(g, '?')
+        tags = classify_pattern(
+            pc, cs, fcs, gt_char, time_count, {**panel_to_last_t, -1: last_any_t},
+        )
+        t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
+        correct = int(p == g)
+        pattern_total['all'] += 1
+        pattern_correct['all'] += correct
+        for tag in tags:
+            pattern_total[tag] += 1
+            pattern_correct[tag] += correct
+        panel_to_last_t[pc.arrow_pos] = t
+        last_any_t = t
+
+    return {
+        'pattern_total': dict(pattern_total),
+        'pattern_correct': dict(pattern_correct),
+        'confusion': confusion.tolist(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Aggregation
+# ---------------------------------------------------------------------------
+
+
+def aggregate(per_chart: list[dict]) -> dict:
+    """Sum per-chart stats into a global summary."""
+    pt, pc_ = defaultdict(int), defaultdict(int)
+    conf = np.zeros((3, 3), dtype=int)
+    for r in per_chart:
+        for k, v in r.get('pattern_total', {}).items():
+            pt[k] += v
+        for k, v in r.get('pattern_correct', {}).items():
+            pc_[k] += v
+        conf += np.array(r.get('confusion', [[0]*3]*3))
+    pattern_acc = {k: pc_[k] / max(pt[k], 1) for k in pt}
+    return {
+        'pattern_total': dict(pt),
+        'pattern_correct': dict(pc_),
+        'pattern_acc': pattern_acc,
+        'confusion': conf.tolist(),
+    }
+
+
+def per_level(per_chart_with_meta: list[dict]) -> dict:
+    """Bucket overall accuracy by chart level."""
+    bucket = defaultdict(lambda: {'correct': 0, 'total': 0})
+    for r in per_chart_with_meta:
+        lv = r['level']
+        bucket[lv]['correct'] += r['pattern_correct'].get('all', 0)
+        bucket[lv]['total']   += r['pattern_total'].get('all', 0)
+    return {
+        str(lv): bucket[lv]['correct'] / max(bucket[lv]['total'], 1)
+        for lv in sorted(bucket)
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def parse_model_arg(s: str) -> tuple[str, str, str | None]:
+    parts = s.split(':')
+    if len(parts) == 2:
+        return parts[0], parts[1], None
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    raise ValueError(f'--models expects name:dir[:backend], got {s!r}')
+
+
+def make_confusion_plot(matrices: dict[str, np.ndarray], out_path: str):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    worst_acc = [r for r in results if 'worst_accuracy' in r['groups'] and r.get('new_tap') is not None]
-    hardest   = [r for r in results if 'hardest_level'  in r['groups'] and r.get('new_tap') is not None]
-
-    def sort_and_plot(ax, items, sort_key, title, color_old, color_new):
-        items = sorted(items, key=sort_key)
-        labels = [f"{r['shortname'][:32]}  (lv{r['level']})" for r in items]
-        old_vals = [r['old_tap'] for r in items]
-        new_vals = [r['new_tap'] for r in items]
-        y = range(len(labels))
-        ax.barh([i + 0.2 for i in y], new_vals, height=0.35, color=color_new, alpha=0.85, label='New model')
-        ax.barh([i - 0.2 for i in y], old_vals, height=0.35, color=color_old, alpha=0.6,  label='Old model')
-        ax.set_yticks(list(y))
-        ax.set_yticklabels(labels, fontsize=6)
-        ax.set_xlabel('Tap accuracy (%)')
-        ax.set_xlim(0, 105)
-        ax.axvline(100, color='gray', linestyle='--', linewidth=0.5)
-        ax.invert_yaxis()
-        ax.legend(fontsize=8)
-        ax.set_title(title)
-
-    fig, axes = plt.subplots(1, 2, figsize=(18, 12))
-    fig.suptitle('Model comparison: Old vs New — Tap accuracy', fontsize=13, fontweight='bold')
-    sort_and_plot(axes[0], worst_acc, lambda r: r['old_tap'],
-                  '30 worst accuracy charts', '#d73027', '#1a9850')
-    sort_and_plot(axes[1], hardest,   lambda r: (-r['level'], r['old_tap']),
-                  '30 hardest charts (by level)', '#4575b4', '#74add1')
+    n = len(matrices)
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
+    if n == 1:
+        axes = [axes]
+    for ax, (name, m) in zip(axes, matrices.items()):
+        m = m.astype(float)
+        row_sums = m.sum(axis=1, keepdims=True)
+        m_norm = np.divide(m, np.maximum(row_sums, 1), where=row_sums > 0)
+        im = ax.imshow(m_norm, cmap='Blues', vmin=0, vmax=1)
+        ax.set_xticks([0, 1, 2]); ax.set_yticks([0, 1, 2])
+        ax.set_xticklabels(['L', 'R', 'E'])
+        ax.set_yticklabels(['L', 'R', 'E'])
+        ax.set_xlabel('Pred'); ax.set_ylabel('GT')
+        ax.set_title(name, fontsize=10)
+        for i in range(3):
+            for j in range(3):
+                ax.text(j, i, f'{m_norm[i, j]*100:.1f}%\n({int(m[i, j])})',
+                        ha='center', va='center',
+                        color='white' if m_norm[i, j] > 0.5 else 'black',
+                        fontsize=8)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
-    print(f'\nChart saved to: {out_path}')
+    logger.success(f'Confusion plot saved: {out_path}')
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--baseline', default=BASELINE)
-    parser.add_argument('--plot', action='store_true')
-    parser.add_argument('--plot_out', default='artifacts/model_comparison.png')
-    pargs = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument('--models', action='append', required=True,
+                   help='name:dir[:backend], repeatable')
+    p.add_argument('--baseline', default=BASELINE)
+    p.add_argument('--csv_dir', default=CSV_DIR)
+    p.add_argument('--vis_dir', default=VIS_DIR)
+    p.add_argument('--output_json', default=None)
+    p.add_argument('--plot', default=None,
+                   help='Path to save confusion matrix plot.')
+    p.add_argument('--limit', type=int, default=None,
+                   help='Limit baseline charts (smoke test).')
+    a = p.parse_args()
 
-    baseline = json.load(open(pargs.baseline))
-    vis_idx = load_vis_index(VIS_DIR)
+    baseline = json.load(open(a.baseline))
+    if a.limit:
+        baseline = baseline[:a.limit]
 
-    # Pre-load model suites once each
-    setup_model_args('singles')
-    suite_s = ModelSuite('singles')
-    setup_model_args('doubles')
-    suite_d = ModelSuite('doubles')
+    parsed_models = [parse_model_arg(s) for s in a.models]
+    logger.info(f'Comparing {len(parsed_models)} models on {len(baseline)} charts')
 
-    results = []
+    # Pre-load suites for each (model × sd) — heavy.
+    suites: dict[tuple[str, str], ModelSuite] = {}
+    for name, mdir, backend_override in parsed_models:
+        backend = backend_override or detect_backend(mdir)
+        logger.info(f'Loading {name} (backend={backend}) from {mdir}')
+        for sd in ('singles', 'doubles'):
+            setup_model_args(sd, mdir, backend)
+            try:
+                suites[(name, sd)] = ModelSuite(sd, backend=backend)
+            except Exception as e:
+                logger.warning(f'{name}/{sd} failed to load: {e}')
+
+    per_model_results: dict[str, list[dict]] = {name: [] for name, _, _ in parsed_models}
+
     for entry in baseline:
         sn = entry['shortname']
         sd = 'singles' if entry['mode'] == 'S' else 'doubles'
+        csv_path = os.path.join(a.csv_dir, sn + '.csv')
+        if not os.path.exists(csv_path):
+            logger.warning(f'No CSV: {sn}')
+            continue
+        for name, _, _ in parsed_models:
+            suite = suites.get((name, sd))
+            if suite is None:
+                continue
+            res = run_inference(csv_path, suite)
+            if res is None:
+                continue
+            pred_limbs, labels, pred_coords, fcs, cs = res
+            stats = score_chart(pred_limbs, labels, pred_coords, fcs, cs)
+            stats.update({
+                'shortname': sn,
+                'song_name': entry.get('song_name'),
+                'mode': entry.get('mode'),
+                'level': entry.get('level'),
+                'groups': entry.get('groups', []),
+            })
+            per_model_results[name].append(stats)
 
-        csv_path = find_csv_for_shortname(sn)
-        ref_path = vis_idx.get(sn)
-
-        result = {
-            'shortname': sn,
-            'song_name': entry['song_name'],
-            'mode': entry['mode'],
-            'level': entry['level'],
-            'groups': entry['groups'],
-            'old_tap': entry['tap_acc_old'],
-            'old_jack': entry['jack_acc_old'],
-            'old_triple': entry['triple_acc_old'],
-            'new_tap': None,
-            'new_jack': None,
-            'new_triple': None,
+    # Aggregate
+    summary = {}
+    confusion_matrices = {}
+    for name, _, _ in parsed_models:
+        rows = per_model_results[name]
+        agg = aggregate(rows)
+        summary[name] = {
+            'pattern_acc': agg['pattern_acc'],
+            'pattern_total': agg['pattern_total'],
+            'confusion': agg['confusion'],
+            'per_level': per_level(rows),
         }
+        confusion_matrices[name] = np.array(agg['confusion'])
 
-        if not csv_path:
-            logger.warning(f'No CSV found for {sn}')
-            results.append(result)
-            continue
-        if not ref_path:
-            logger.warning(f'No vis-ss ref for {sn}')
-            results.append(result)
-            continue
+    # Print
+    all_patterns = ['all'] + list(PATTERN_BUCKETS)
+    width = max(12, max(len(n) for n, _, _ in parsed_models))
+    print('\n=== Pattern accuracy ===\n')
+    header = f'{"pattern":<14}  {"n":>8}  ' + '  '.join(f'{n:>{width}}' for n, _, _ in parsed_models)
+    print(header)
+    print('-' * len(header))
+    for pat in all_patterns:
+        ns = [summary[n]['pattern_total'].get(pat, 0) for n, _, _ in parsed_models]
+        n_repr = max(ns) if ns else 0
+        cells = []
+        for nm, _, _ in parsed_models:
+            acc = summary[nm]['pattern_acc'].get(pat, None)
+            cells.append(f'{acc*100:>{width-1}.2f}%' if acc is not None else f'{"n/a":>{width}}')
+        print(f'{pat:<14}  {n_repr:>8}  ' + '  '.join(cells))
 
-        try:
-            ref = json.load(open(ref_path))
-            ref_taps = ref[0]
-        except Exception as e:
-            logger.warning(f'Could not load ref for {sn}: {e}')
-            results.append(result)
-            continue
+    # Per-level table
+    levels = sorted({
+        lv for nm, _, _ in parsed_models for lv in summary[nm]['per_level']
+    }, key=lambda s: int(s) if s.isdigit() else 0)
+    if levels:
+        print('\n=== Per-level accuracy ===\n')
+        print(f'{"level":<8}  ' + '  '.join(f'{n:>{width}}' for n, _, _ in parsed_models))
+        for lv in levels:
+            cells = []
+            for nm, _, _ in parsed_models:
+                acc = summary[nm]['per_level'].get(lv)
+                cells.append(f'{acc*100:>{width-1}.2f}%' if acc is not None else f'{"n/a":>{width}}')
+            print(f'{lv:<8}  ' + '  '.join(cells))
 
-        suite = suite_s if sd == 'singles' else suite_d
+    # Confusion summary
+    print('\n=== Confusion matrices (rows=truth L/R/E, cols=pred) ===\n')
+    for nm, _, _ in parsed_models:
+        print(f'-- {nm} --')
+        for i, label in enumerate(['L', 'R', 'E']):
+            print(f'  {label}: ' + ' '.join(f'{x:>6}' for x in summary[nm]['confusion'][i]))
 
-        # need fresh ChartStruct per inference call
-        try:
-            cs = ChartStruct.from_file(csv_path)
-            from piu_annotate.ml import featurizers as ftz
-            _cs, fcs, pred_limbs = ml_predictor.predict(cs, suite)
+    out = {
+        'baseline': a.baseline,
+        'n_charts': len(baseline),
+        'models': {nm: {'dir': mdir, 'backend_override': bo}
+                   for nm, mdir, bo in parsed_models},
+        'summary': summary,
+        'per_chart': per_model_results,
+    }
+    if a.output_json:
+        os.makedirs(os.path.dirname(a.output_json) or '.', exist_ok=True)
+        with open(a.output_json, 'w') as f:
+            json.dump(out, f, indent=2)
+        logger.success(f'JSON written: {a.output_json}')
 
-            # Overall accuracy (vs 'Limb annotation' col in CSV = vis-ss ground truth)
-            eval_dict = fcs.evaluate(pred_limbs)
-            result['new_tap'] = round(eval_dict['accuracy-float'] * 100, 2)
-
-            # Jack and triple accuracy
-            labels = fcs.get_labels_from_limb_col('Limb annotation')
-            pred_coords = fcs.pred_coords
-
-            time_count: dict[float, int] = defaultdict(int)
-            for pc in pred_coords:
-                t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
-                time_count[t] += 1
-
-            panel_to_last_t: dict[int, float] = {}
-            jack_correct = jack_total = 0
-            triple_correct = triple_total = 0
-
-            for idx, pc in enumerate(pred_coords):
-                t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
-                correct = int(pred_limbs[idx] == labels[idx])
-                is_triple = time_count[t] >= 3
-                prev_t = panel_to_last_t.get(pc.arrow_pos)
-                is_jack = prev_t is not None and abs(prev_t - t) > 1e-3
-                panel_to_last_t[pc.arrow_pos] = t
-                if is_triple:
-                    triple_total += 1
-                    triple_correct += correct
-                if is_jack:
-                    jack_total += 1
-                    jack_correct += correct
-
-            result['new_jack']   = round(100.0 * jack_correct   / max(jack_total,   1), 2) if jack_total   else None
-            result['new_triple'] = round(100.0 * triple_correct / max(triple_total, 1), 2) if triple_total else None
-            logger.info(f"{sn[:45]}  old={result['old_tap']:.1f}%  new={result['new_tap']:.1f}%")
-        except Exception as e:
-            logger.warning(f'Failed inference on {sn}: {e}')
-
-        results.append(result)
-
-    # Print comparison tables
-    for group, label in [('worst_accuracy', 'WORST 30 (low accuracy)'), ('hardest_level', 'HARDEST 30 (high level)')]:
-        subset = [r for r in results if group in r['groups']]
-        subset = sorted(subset, key=lambda r: r['old_tap'] if group == 'worst_accuracy' else (-r['level'], r['old_tap']))
-
-        print(f'\n=== {label} ===\n')
-        print(f'  {"shortname":<45}  {"lv":>3}  {"old tap":>7}  {"new tap":>7}  {"delta":>7}  {"old jack":>8}  {"new jack":>8}')
-        print(f'  {"-"*100}')
-        for r in subset:
-            d = delta(r['new_tap'], r['old_tap']) if r['new_tap'] is not None else '   n/a'
-            new_tap_s  = f"{r['new_tap']:.1f}%"  if r['new_tap']  is not None else '   n/a'
-            new_jack_s = f"{r['new_jack']:.1f}%" if r['new_jack'] is not None else '   n/a'
-            print(f"  {r['shortname']:<45}  {r['level']:>3}  {r['old_tap']:>6.1f}%  {new_tap_s:>7}  {d:>7}  {r['old_jack']:>7.1f}%  {new_jack_s:>8}")
-
-    # Summary
-    all_with_new = [r for r in results if r['new_tap'] is not None]
-    if all_with_new:
-        avg_old = sum(r['old_tap'] for r in all_with_new) / len(all_with_new)
-        avg_new = sum(r['new_tap'] for r in all_with_new) / len(all_with_new)
-        improved = sum(1 for r in all_with_new if r['new_tap'] > r['old_tap'])
-        print(f'\n=== SUMMARY ({len(all_with_new)} charts) ===')
-        print(f'  Avg tap accuracy:  old={avg_old:.1f}%  new={avg_new:.1f}%  delta={avg_new - avg_old:+.1f}pp')
-        print(f'  Improved: {improved}/{len(all_with_new)} charts')
-
-    if pargs.plot:
-        make_plot(results, pargs.plot_out)
+    if a.plot:
+        os.makedirs(os.path.dirname(a.plot) or '.', exist_ok=True)
+        make_confusion_plot(confusion_matrices, a.plot)
 
 
 if __name__ == '__main__':
