@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Batch inference with v8 MLX model on all SSC sim files.
+Batch inference with v8/v9 MLX model on all SSC sim files.
+Supports Test-Time Augmentation (TTA) for improved accuracy.
 
 Usage:
     python cli/limbuse/infer_v8_batch.py \
         --simfiles_dir /path/to/piu_sim_files \
         --out_dir comparations/generated \
-        --model_dir artifacts/models/visss-mlx-v8
+        --model_dir artifacts/models/visss-mlx-v9 \
+        --tta
 
 Skips: UCS, nonstandard, coop, hidden, quest charts.
 Outputs one JSON per chart in vis-ss format: [arrows, holds, metadata]
@@ -30,14 +32,16 @@ import mlx.nn as nn
 from piu_annotate.formats.sscfile import SongSSC, StepchartSSC
 from piu_annotate.formats.chart import ChartStruct
 from piu_annotate.formats.jsplot import ChartJsStruct
+from piu_annotate.formats.mirror import mirror_chartstruct
 from piu_annotate.crawl import crawl_sscs
 from piu_annotate.ml.featurizers import ChartStructFeaturizer
 from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
+from piu_annotate.formats.notelines import fix_impossible_predictions
 
 MAX_SEQ_LEN = 1024
 CHUNK_OVERLAP = 256
-SINGLES_INPUT_DIM = 22  # 18 arrow + 4 prev_limb one-hot
-DOUBLES_INPUT_DIM = 27  # 23 arrow + 4 prev_limb one-hot
+SINGLES_INPUT_DIM = 28  # 24 arrow + 4 prev_limb one-hot
+DOUBLES_INPUT_DIM = 33  # 29 arrow + 4 prev_limb one-hot
 
 
 def load_v8_model(model_dir: str, sd: str) -> LimbSequenceTransformer:
@@ -115,6 +119,30 @@ def predict_sequence(model: LimbSequenceTransformer, x_full: np.ndarray) -> np.n
     return np.argmax(prob_acc / weight_acc[:, None], axis=-1).astype(np.int32)
 
 
+def predict_sequence_logits(model: LimbSequenceTransformer, x_full: np.ndarray) -> np.ndarray:
+    """Predict over a full sequence, returning averaged logits (N, 3)."""
+    N = len(x_full)
+    logits_acc = np.zeros((N, 3), dtype=np.float64)
+    weight_acc = np.zeros(N, dtype=np.float64)
+    for chunk, slc in make_chunks(x_full):
+        L = len(chunk)
+        x_mx = mx.array(chunk[None])
+        pm = mx.zeros((1, L), dtype=mx.bool_)
+        logits = model(x_mx, pm)
+        mx.eval(logits)
+        logits_np = np.array(logits)[0]
+        chunk_len = slc.stop - slc.start
+        w = np.ones(chunk_len, dtype=np.float64)
+        if chunk_len > 2 * CHUNK_OVERLAP:
+            ramp = np.linspace(0.3, 1.0, CHUNK_OVERLAP)
+            w[:CHUNK_OVERLAP] = ramp
+            w[-CHUNK_OVERLAP:] = ramp[::-1]
+        logits_acc[slc] += logits_np * w[:, None]
+        weight_acc[slc] += w
+    weight_acc = np.maximum(weight_acc, 1e-8)
+    return logits_acc / weight_acc[:, None]
+
+
 def ar_infer(model: LimbSequenceTransformer, x_base: np.ndarray) -> np.ndarray:
     """2-pass autoregressive inference.
     Pass 1: all prev_limb = START token.
@@ -135,27 +163,72 @@ def ar_infer(model: LimbSequenceTransformer, x_base: np.ndarray) -> np.ndarray:
     return preds2
 
 
-INT_TO_LIMB = {0: 'l', 1: 'r', 2: 'e'}
+def ar_infer_logits(model: LimbSequenceTransformer, x_base: np.ndarray) -> np.ndarray:
+    """2-pass autoregressive inference returning logits."""
+    N = len(x_base)
+    prev1 = np.zeros((N, 4), dtype=np.float32)
+    prev1[:, 3] = 0.0
+    prev1[0, 3] = 1.0
+    x1 = np.concatenate([x_base, prev1], axis=1)
+    logits1 = predict_sequence_logits(model, x1)
+    preds1 = np.argmax(logits1, axis=-1)
+
+    prev2 = _prev_limb_onehot_from_preds(preds1, first_label=3)
+    x2 = np.concatenate([x_base, prev2], axis=1)
+    logits2 = predict_sequence_logits(model, x2)
+    return logits2
 
 
-def infer_chart(cs: ChartStruct, model: LimbSequenceTransformer) -> ChartStruct | None:
-    """Run v8 model on a ChartStruct and write limb annotations. Returns None on failure."""
+def flip_lr_logits(logits: np.ndarray) -> np.ndarray:
+    """Swap L and R logits: logits[:, [1, 0, 2]]"""
+    flipped = logits.copy()
+    flipped[:, [0, 1]] = logits[:, [1, 0]]
+    return flipped
+
+
+def infer_chart(cs: ChartStruct, model: LimbSequenceTransformer, use_tta: bool = False) -> ChartStruct | None:
+    """Run v8/v9 model on a ChartStruct and write limb annotations. Returns None on failure."""
     try:
+        sd = cs.singles_or_doubles()
         fcs = ChartStructFeaturizer(cs)
-        x_base = fcs.get_raw_features().astype(np.float32)  # N × 18
+        x_base = fcs.get_raw_features().astype(np.float32)  # N × D
         if len(x_base) == 0:
             return None
-        preds = ar_infer(model, x_base)  # N integers in {0, 1, 2}
+
+        if use_tta:
+            # Pass 1: original
+            logits_orig = ar_infer_logits(model, x_base)
+
+            # Pass 2: mirrored chart
+            cs_mirror = mirror_chartstruct(cs)
+            fcs_mirror = ChartStructFeaturizer(cs_mirror)
+            x_base_mirror = fcs_mirror.get_raw_features().astype(np.float32)
+            logits_mirror = ar_infer_logits(model, x_base_mirror)
+
+            # Flip mirrored logits back
+            logits_mirror_flipped = flip_lr_logits(logits_mirror)
+
+            # Average
+            logits_final = (logits_orig + logits_mirror_flipped) * 0.5
+            preds = np.argmax(logits_final, axis=-1).astype(np.int32)
+        else:
+            preds = ar_infer(model, x_base)
+
+        # Hard-fix impossible same-foot bracket assignments
+        preds = fix_impossible_predictions(preds, x_base[:, 0], x_base[:, 6])
 
         pred_coords = cs.get_prediction_coordinates()
         pred_limb_strs = [INT_TO_LIMB[int(p)] for p in preds]
         cs.add_limb_annotations(pred_coords, pred_limb_strs, 'Limb annotation')
         cs.metadata['Manual limb annotation'] = False
-        cs.metadata['generated_by'] = 'v8_mlx'
+        cs.metadata['generated_by'] = 'v9_mlx' + ('_tta' if use_tta else '')
         return cs
     except Exception as e:
         logger.warning(f'Failed to infer: {e}')
         return None
+
+
+INT_TO_LIMB = {0: 'l', 1: 'r', 2: 'e'}
 
 
 def cs_to_json(cs: ChartStruct) -> list:
@@ -193,11 +266,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--simfiles_dir', default='/Users/rodrigo/dev/piu/piu_sim_files')
     ap.add_argument('--out_dir', default='comparations/generated')
-    ap.add_argument('--model_dir', default='artifacts/models/visss-mlx-v8')
+    ap.add_argument('--model_dir', default='artifacts/models/visss-mlx-v9')
     ap.add_argument('--origin_viss_dir', default='comparations/origin_viss')
     ap.add_argument('--viss_src', default='/Users/rodrigo/dev/piu/piu-vis-ss_for_piumx/public/chart-jsons/120524')
     ap.add_argument('--sd', default='singles', choices=['singles', 'doubles', 'both'])
     ap.add_argument('--limit', type=int, default=None, help='Limit charts for testing')
+    ap.add_argument('--tta', action='store_true', help='Enable Test-Time Augmentation')
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -272,7 +346,7 @@ def main():
 
             try:
                 cs = ChartStruct.from_stepchart_ssc(stepchart)
-                cs = infer_chart(cs, model)
+                cs = infer_chart(cs, model, use_tta=args.tta)
                 if cs is None:
                     stats['failed'] += 1
                     continue

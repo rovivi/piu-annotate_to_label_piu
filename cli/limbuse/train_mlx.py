@@ -27,8 +27,67 @@ from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
 MAX_SEQ_LEN = 1024
 CHUNK_OVERLAP = 256  # was 128; larger overlap improves boundary predictions
 
-SINGLES_INPUT_DIM = 22   # 18 arrow features + 4 prev-limb one-hot (L, R, E, START)
-DOUBLES_INPUT_DIM = 27   # 23 arrow features + 4 prev-limb one-hot
+_BRACKETABLE_SET: frozenset[tuple[int, int]] = frozenset(
+    (min(a, b), max(a, b)) for a, b in [
+        [0, 1], [0, 2], [1, 2], [3, 2], [3, 4], [4, 2],  # P1 center + side brackets
+        [4, 5], [3, 6],                                    # inter-pad
+        [5, 6], [5, 7], [6, 7], [8, 7], [8, 9], [9, 7],  # P2 center + side brackets
+    ]
+)
+
+
+def find_impossible_pairs(x_np: np.ndarray) -> list[tuple[int, int]]:
+    """Return (i, j) index pairs in x that would be impossible same-foot brackets."""
+    arrow_pos = x_np[:, 0].astype(int)
+    num_dp = x_np[:, 6].astype(int)
+    N = len(x_np)
+    pairs: list[tuple[int, int]] = []
+    i = 0
+    while i < N:
+        n = int(num_dp[i])
+        if n >= 2:
+            group = list(range(i, min(i + n, N)))
+            for g1 in range(len(group)):
+                for g2 in range(g1 + 1, len(group)):
+                    p1 = arrow_pos[group[g1]]
+                    p2 = arrow_pos[group[g2]]
+                    if (min(p1, p2), max(p1, p2)) not in _BRACKETABLE_SET:
+                        pairs.append((group[g1], group[g2]))
+            i += n
+        else:
+            i += 1
+    return pairs
+
+
+def compute_impossible_penalty(
+    logits: 'mx.array',
+    pairs_b: 'mx.array',
+    pairs_i: 'mx.array',
+    pairs_j: 'mx.array',
+) -> 'mx.array':
+    """Penalize impossible same-foot bracket predictions.
+
+    For each impossible pair (b, i, j): penalise P(L_i)*P(L_j) + P(R_i)*P(R_j).
+    """
+    B, L, C = logits.shape
+    max_l = mx.max(logits, axis=-1, keepdims=True)
+    log_probs = logits - max_l - mx.log(mx.sum(mx.exp(logits - max_l), axis=-1, keepdims=True))
+    log_probs_flat = log_probs.reshape(B * L, C)
+
+    flat_i = pairs_b * L + pairs_i
+    flat_j = pairs_b * L + pairs_j
+
+    lp_i = mx.take(log_probs_flat, flat_i, axis=0)  # (P, 3)
+    lp_j = mx.take(log_probs_flat, flat_j, axis=0)  # (P, 3)
+
+    probs_i = mx.exp(lp_i)
+    probs_j = mx.exp(lp_j)
+
+    penalty = mx.sum(probs_i[:, 0] * probs_j[:, 0] + probs_i[:, 1] * probs_j[:, 1])
+    return penalty / (flat_i.shape[0] + 1e-8)
+
+SINGLES_INPUT_DIM = 28   # 24 arrow features + 4 prev-limb one-hot (L, R, E, START)
+DOUBLES_INPUT_DIM = 33   # 29 arrow features + 4 prev-limb one-hot
 
 
 def save_model(path: str, model: nn.Module) -> None:
@@ -150,7 +209,7 @@ def log_class_distribution(train_data: list[tuple]) -> None:
     logger.info(f'Class dist (L/R/Either): {counts[0]} ({pct[0]:.1f}%) / {counts[1]} ({pct[1]:.1f}%) / {counts[2]} ({pct[2]:.1f}%)')
 
 
-def build_batches(chunks, batch_size, shuffle=True, seed=0):
+def build_batches(chunks, batch_size, shuffle=True, seed=0, with_impossible_pairs=False):
     # Sort by length to minimize padding waste within each batch
     sorted_idx = sorted(range(len(chunks)), key=lambda i: chunks[i][0].shape[0])
     batches = [sorted_idx[i:i + batch_size] for i in range(0, len(sorted_idx), batch_size)]
@@ -160,7 +219,8 @@ def build_batches(chunks, batch_size, shuffle=True, seed=0):
     for batch_idxs in batches:
         max_len = max(chunks[i][0].shape[0] for i in batch_idxs)
         batch_x, batch_y, batch_pad, batch_loss = [], [], [], []
-        for i in batch_idxs:
+        pb, pi_list, pj_list = [], [], []
+        for b_idx, i in enumerate(batch_idxs):
             x, y = chunks[i]
             L = x.shape[0]
             x_padded = np.zeros((max_len, x.shape[1]), dtype=np.float32)
@@ -176,12 +236,22 @@ def build_batches(chunks, batch_size, shuffle=True, seed=0):
             batch_y.append(y_padded)
             batch_pad.append(pad_mask)
             batch_loss.append(loss_mask)
-        yield {
+            if with_impossible_pairs:
+                for (ii, jj) in find_impossible_pairs(x):
+                    pb.append(b_idx)
+                    pi_list.append(ii)
+                    pj_list.append(jj)
+        batch = {
             'x': np.array(batch_x),
             'y': np.array(batch_y),
             'padding_mask': np.array(batch_pad),
             'loss_mask': np.array(batch_loss),
         }
+        if with_impossible_pairs:
+            batch['pairs_b'] = np.array(pb, dtype=np.int32)
+            batch['pairs_i'] = np.array(pi_list, dtype=np.int32)
+            batch['pairs_j'] = np.array(pj_list, dtype=np.int32)
+        yield batch
 
 
 def compute_loss(logits, y, loss_mask, smoothing=0.1, class_weights=None):
@@ -336,6 +406,8 @@ def train(
     class_weight_e: float = 1.0,
     ss_prob_max: float = 0.0,
     large_model: bool = False,
+    resume_from: str | None = None,
+    impossible_penalty: float = 0.0,
 ):
     mx.random.seed(seed)
     np.random.seed(seed)
@@ -379,6 +451,10 @@ def train(
         )
         d_model_save, n_heads_save, n_layers_save, ffn_dim_save = 256, 8, 6, 1024
 
+    if resume_from and os.path.exists(resume_from):
+        model.load_weights(resume_from)
+        mx.eval(model.parameters())
+        logger.info(f"Resumed model from {resume_from}")
     mx.eval(model.parameters())
     n_params = sum(v.size for _, v in tree_flatten(model.parameters()))
     logger.info(f"Model: {n_params:,} parameters")
@@ -400,25 +476,29 @@ def train(
     optimizer = optim.AdamW(learning_rate=lr_sched, weight_decay=0.05)
     state = [model.state, optimizer.state]
 
-    def loss_fn(mdl, x, y, pm, lm):
-        return compute_loss(mdl(x, pm), y, lm,
-                          smoothing=label_smoothing,
-                          class_weights=class_weights_mx)
+    use_impossible_penalty = impossible_penalty > 0.0
+    impossible_penalty_mx = mx.array(impossible_penalty) if use_impossible_penalty else None
+
+    def loss_fn(mdl, x, y, pm, lm, pb=None, pi=None, pj=None):
+        logits = mdl(x, pm)
+        loss = compute_loss(logits, y, lm,
+                            smoothing=label_smoothing,
+                            class_weights=class_weights_mx)
+        if pb is not None and pb.shape[0] > 0:
+            loss = loss + impossible_penalty_mx * compute_impossible_penalty(logits, pb, pi, pj)
+        return loss
 
     loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
 
-    # Compiled step (teacher forcing only)
-    @partial(mx.compile, inputs=state, outputs=state)
-    def step(x, y, pm, lm):
-        loss, grads = loss_and_grad_fn(model, x, y, pm, lm)
+    # Step (teacher forcing only) — compile disabled to avoid recompile stalls
+    def step(x, y, pm, lm, pb=None, pi=None, pj=None):
+        loss, grads = loss_and_grad_fn(model, x, y, pm, lm, pb, pi, pj)
         grads, _ = mx_clip_grad_norm(grads, max_norm=1.0)
         optimizer.update(model, grads)
         return loss
 
-    # Compiled step with scheduled sampling: both passes inside one compiled graph
-    # to avoid MLX graph ID conflicts from mixed compiled/uncompiled execution.
-    @partial(mx.compile, inputs=state, outputs=state)
-    def step_ss(x, y, pm, lm, ss_prob_mx):
+    # Step with scheduled sampling — compile disabled
+    def step_ss(x, y, pm, lm, ss_prob_mx, pb=None, pi=None, pj=None):
         B, L, _ = x.shape
         # Pass 1: inference for SS predictions (no explicit stop_gradient needed
         # since loss_and_grad_fn only differentiates through pass-2's model call)
@@ -434,7 +514,7 @@ def train(
             mx.concatenate([x[:, 1:, :-4], mixed_prev], axis=-1),
         ], axis=1))
         # Pass 2: loss + grad through model(x_ss, pm) only
-        loss, grads = loss_and_grad_fn(model, x_ss, y, pm, lm)
+        loss, grads = loss_and_grad_fn(model, x_ss, y, pm, lm, pb, pi, pj)
         grads, _ = mx_clip_grad_norm(grads, max_norm=1.0)
         optimizer.update(model, grads)
         return loss
@@ -465,7 +545,8 @@ def train(
         n_batches = 0
 
         for batch in tqdm(
-            build_batches(train_chunks, batch_size, shuffle=True, seed=seed + epoch),
+            build_batches(train_chunks, batch_size, shuffle=True, seed=seed + epoch,
+                          with_impossible_pairs=use_impossible_penalty),
             desc='Training',
             leave=False,
         ):
@@ -474,10 +555,14 @@ def train(
             pm = mx.array(batch['padding_mask'])
             lm = mx.array(batch['loss_mask'])
 
+            pb = mx.array(batch['pairs_b']) if use_impossible_penalty else None
+            pi = mx.array(batch['pairs_i']) if use_impossible_penalty else None
+            pj = mx.array(batch['pairs_j']) if use_impossible_penalty else None
+
             if ss_prob > 0:
-                loss = step_ss(x, y, pm, lm, mx.array(ss_prob))
+                loss = step_ss(x, y, pm, lm, mx.array(ss_prob), pb, pi, pj)
             else:
-                loss = step(x, y, pm, lm)
+                loss = step(x, y, pm, lm, pb, pi, pj)
             if global_step % 8 == 0:
                 mx.eval(model.parameters(), optimizer.state)
             epoch_loss += float(loss)
@@ -561,6 +646,11 @@ if __name__ == '__main__':
                         help='Max scheduled-sampling prob (linearly ramped post-warmup). 0=off.')
     parser.add_argument('--large_model', action='store_true',
                         help='Use d_model=384, n_layers=8 (~14M params) instead of default 5M.')
+    parser.add_argument('--resume_from', type=str, default=None,
+                        help='Path to .safetensors checkpoint to resume training from.')
+    parser.add_argument('--impossible_penalty', type=float, default=0.0,
+                        help='Weight for impossible same-foot bracket penalty. 0=off. '
+                             'Try 10.0–50.0 for a penalty fine-tuning epoch.')
     args = parser.parse_args()
 
     train(
@@ -578,4 +668,6 @@ if __name__ == '__main__':
         class_weight_e=args.class_weight_e,
         ss_prob_max=args.ss_prob_max,
         large_model=args.large_model,
+        resume_from=args.resume_from,
+        impossible_penalty=args.impossible_penalty,
     )

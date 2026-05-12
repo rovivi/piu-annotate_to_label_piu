@@ -204,9 +204,9 @@ def frac_two_arrows_bracketable(lines: list[str]) -> float:
 
 
 bracketable_arrow_positions = [
-    [0, 2], [1, 2], [3, 2], [4, 2], # Left pad
-    [4, 5], [3, 6],                 # Between pads
-    [5, 7], [6, 7], [8, 7], [9, 7]  # Right pad
+    [0, 1], [0, 2], [1, 2], [3, 2], [3, 4], [4, 2],  # Left pad (center + side brackets)
+    [4, 5], [3, 6],                                    # Between pads
+    [5, 6], [5, 7], [6, 7], [8, 7], [8, 9], [9, 7],  # Right pad (center + side brackets)
 ]
 quads = [(b1, b2) for b1, b2 in itertools.combinations(bracketable_arrow_positions, 2)
          if len(set(b1 + b2)) == 4]
@@ -219,6 +219,53 @@ def one_foot_multihit_possible(arrow_positions: list[int]) -> bool:
     if len(arrow_positions) <= 1:
         return True
     return sorted(arrow_positions) in bracketable_arrow_positions
+
+
+# O(1) lookup set for bracketable pairs
+_BRACKETABLE_SET: frozenset[tuple[int, int]] = frozenset(
+    (min(a, b), max(a, b)) for a, b in bracketable_arrow_positions
+)
+
+
+def same_foot_is_impossible(p1: int, p2: int) -> bool:
+    """True if panels p1 and p2 cannot be bracketed by a single foot."""
+    return (min(p1, p2), max(p1, p2)) not in _BRACKETABLE_SET
+
+
+def fix_impossible_predictions(
+    preds: 'np.ndarray',
+    arrow_positions: 'np.ndarray',
+    num_dp: 'np.ndarray',
+) -> 'np.ndarray':
+    """Post-process model preds to eliminate impossible same-foot brackets.
+
+    For each multihit group, if two non-bracketable panels are assigned the
+    same foot, flip the higher-panel one to the opposite foot.
+    """
+    import numpy as np
+    from itertools import combinations
+    preds = preds.copy()
+    N = len(preds)
+    i = 0
+    while i < N:
+        n = int(num_dp[i])
+        if n >= 2:
+            group = list(range(i, min(i + n, N)))
+            changed = True
+            while changed:
+                changed = False
+                for g1, g2 in combinations(range(len(group)), 2):
+                    idx1, idx2 = group[g1], group[g2]
+                    p1, p2 = int(arrow_positions[idx1]), int(arrow_positions[idx2])
+                    if same_foot_is_impossible(p1, p2):
+                        f1, f2 = int(preds[idx1]), int(preds[idx2])
+                        if f1 == f2 and f1 in (0, 1):
+                            preds[idx2] = 1 - f2
+                            changed = True
+            i += n
+        else:
+            i += 1
+    return preds
 
 
 def multihit_to_valid_feet(arrow_positions: list[int]) -> list[tuple[int]]:

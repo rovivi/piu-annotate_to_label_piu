@@ -7,6 +7,7 @@ from piu_annotate.ml import featurizers
 from piu_annotate.ml.tactics import Tactician
 from piu_annotate.ml.models import ModelSuite
 from piu_annotate.reasoning.reasoners import PatternReasoner
+from piu_annotate.formats.notelines import fix_impossible_predictions
 
 
 def predict(
@@ -53,6 +54,10 @@ def predict(
     pred_limbs = tactics.enforce_arrow_after_hold_release(pred_limbs)
     pred_limbs = tactics.detect_impossible_multihit(pred_limbs)
     pred_limbs = tactics.detect_impossible_lines_with_holds(pred_limbs)
+
+    # Hard blacklist: deterministic fix for any remaining impossible same-foot brackets
+    x_raw = fcs.get_raw_features()
+    pred_limbs = fix_impossible_predictions(pred_limbs, x_raw[:, 0], x_raw[:, 6])
 
     if cs.get_chart_level() <= 15:
         pred_limbs = tactics.remove_unforced_brackets(pred_limbs)

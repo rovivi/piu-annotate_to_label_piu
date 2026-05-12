@@ -75,25 +75,78 @@ class ChartStructFeaturizer:
         else:
             coords = self.pred_coords
 
+        # Pre-compute row-level bracket info for v9
+        df = self.cs.df
+        row_has_downpress = []
+        row_is_bracketable = []
+        for _, r in df.iterrows():
+            l = r['Line with active holds'].replace('`', '')
+            nd = l.count('1') + l.count('2')
+            row_has_downpress.append(nd > 0)
+            row_is_bracketable.append(notelines.line_is_bracketable(l) if nd >= 2 else False)
+
+        # Find previous and next downpress row indices for each row
+        downpress_row_indices = [i for i, has_dp in enumerate(row_has_downpress) if has_dp]
+        row_to_prev_dp_row = {}
+        row_to_next_dp_row = {}
+        for i, ridx in enumerate(downpress_row_indices):
+            row_to_prev_dp_row[ridx] = downpress_row_indices[i-1] if i > 0 else None
+            row_to_next_dp_row[ridx] = downpress_row_indices[i+1] if i + 1 < len(downpress_row_indices) else None
+
+        # Compute same-panel streak for each coordinate
+        same_panel_streak = [0] * len(coords)
+        streak = 0
+        for i in range(len(coords)):
+            if i > 0 and coords[i].arrow_pos == coords[i-1].arrow_pos:
+                streak += 1
+            else:
+                streak = 0
+            same_panel_streak[i] = streak
+
         for idx, arrow_coord in enumerate(coords):
-            row = self.cs.df.iloc[arrow_coord.row_idx]
+            row = df.iloc[arrow_coord.row_idx]
             line = row['Line with active holds'].replace('`', '')
             line_is_bracketable = notelines.line_is_bracketable(line)
 
             prior_line_only_releases_hold_on_this_arrow = False
             row_idx = arrow_coord.row_idx
             if row_idx > 0:
-                prev_line = self.cs.df.at[row_idx - 1, 'Line'].replace('`', '')
+                prev_line = df.at[row_idx - 1, 'Line'].replace('`', '')
                 if prev_line[arrow_coord.arrow_pos] == '3':
                     if prev_line.count('0') in [4, 9]:
                         prior_line_only_releases_hold_on_this_arrow = True
 
             next_line_only_releases_hold_on_this_arrow = False
-            if row_idx + 1 < len(self.cs.df):
-                prev_line = self.cs.df.at[row_idx + 1, 'Line'].replace('`', '')
-                if prev_line[arrow_coord.arrow_pos] == '3':
-                    if prev_line.count('0') in [4, 9]:
+            if row_idx + 1 < len(df):
+                next_line_raw = df.at[row_idx + 1, 'Line'].replace('`', '')
+                if next_line_raw[arrow_coord.arrow_pos] == '3':
+                    if next_line_raw.count('0') in [4, 9]:
                         next_line_only_releases_hold_on_this_arrow = True
+
+            # v9 structural features
+            prev_dp_row = row_to_prev_dp_row.get(row_idx)
+            prev_line_was_bracket = False
+            if prev_dp_row is not None:
+                prev_line_was_bracket = row_is_bracketable[prev_dp_row]
+
+            next_dp_row = row_to_next_dp_row.get(row_idx)
+            next_line_is_bracketable_flag = False
+            time_to_next_dp = -1.0
+            if next_dp_row is not None:
+                next_line_is_bracketable_flag = row_is_bracketable[next_dp_row]
+                time_to_next_dp = float(df.at[next_dp_row, 'Time'] - row['Time'])
+
+            hold_count_in_line = line.count('4')
+            is_jack = False
+            if prev_dp_row is not None and idx > 0:
+                # Check if same panel as previous prediction coordinate
+                prev_coord = coords[idx - 1]
+                # Only a jack if it's the same panel and different time
+                if prev_coord.arrow_pos == arrow_coord.arrow_pos:
+                    prev_time = float(df.at[prev_coord.row_idx, 'Time'])
+                    curr_time = float(row['Time'])
+                    if abs(prev_time - curr_time) > 1e-6:
+                        is_jack = True
 
             arrow_pos = arrow_coord.arrow_pos
             point = ArrowDataPoint(
@@ -113,6 +166,13 @@ class ChartStructFeaturizer:
                 next_line_only_releases_hold_on_this_arrow = next_line_only_releases_hold_on_this_arrow,
                 x = float(pos_map[arrow_pos][0]),
                 y = float(pos_map[arrow_pos][1]),
+                # v9
+                prev_line_was_bracket = prev_line_was_bracket,
+                next_line_is_bracketable = next_line_is_bracketable_flag,
+                hold_count_in_line = hold_count_in_line,
+                time_to_next_downpress = time_to_next_dp,
+                is_jack = is_jack,
+                n_same_panel_streak = same_panel_streak[idx],
             )
             
             # Rotation and Spatial State Features
