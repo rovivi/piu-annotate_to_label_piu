@@ -14,6 +14,7 @@ For AMD 6950 XT (gfx1030 / RDNA2):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -320,6 +321,8 @@ def train(
     impossible_penalty: float = 0.0,
     device: str | None = None,
     use_compile: bool = False,
+    grad_accum_steps: int = 1,
+    dtype: str = 'fp32',
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -390,6 +393,22 @@ def train(
         except Exception as e:
             logger.warning(f'torch.compile failed, falling back to eager: {e}')
 
+    # Mixed precision setup. For low-VRAM AMD/CUDA: bf16 cuts ~40% memory at
+    # no acc cost; fp16 cuts ~50% but needs a GradScaler. bf16 is preferred
+    # on RDNA2/3 + recent CUDA.
+    autocast_dtype = {
+        'fp32': None,
+        'bf16': torch.bfloat16,
+        'fp16': torch.float16,
+    }.get(dtype, None)
+    scaler = None
+    if dtype == 'fp16' and dev.type == 'cuda':
+        scaler = torch.cuda.amp.GradScaler()
+    if autocast_dtype is not None:
+        logger.info(f'Mixed precision: {dtype}')
+    if grad_accum_steps > 1:
+        logger.info(f'Gradient accumulation: {grad_accum_steps} steps (effective batch = {batch_size * grad_accum_steps})')
+
     best_acc = 0.0
     no_improve = 0
     gstep = 0
@@ -400,6 +419,8 @@ def train(
         model.train()
         epoch_loss = 0.0
         nb = 0
+        optimizer.zero_grad(set_to_none=True)
+        accum_count = 0
         for batch in tqdm(
             build_batches(train_chunks, batch_size, shuffle=True, seed=seed + epoch,
                           with_impossible_pairs=use_imp),
@@ -410,10 +431,14 @@ def train(
             pm = torch.from_numpy(batch['padding_mask']).to(dev)
             lm = torch.from_numpy(batch['loss_mask']).to(dev)
 
-            optimizer.zero_grad(set_to_none=True)
-            logits = fwd(x, pm)
-            loss = compute_loss(logits, y, lm, smoothing=label_smoothing,
-                                class_weights=class_weights_t)
+            if autocast_dtype is not None:
+                ctx = torch.autocast(device_type=dev.type, dtype=autocast_dtype)
+            else:
+                ctx = contextlib.nullcontext()
+            with ctx:
+                logits = fwd(x, pm)
+                loss = compute_loss(logits, y, lm, smoothing=label_smoothing,
+                                    class_weights=class_weights_t)
             if use_imp and len(batch['pairs_b']) > 0:
                 pb = torch.from_numpy(batch['pairs_b']).to(dev)
                 pi = torch.from_numpy(batch['pairs_i']).to(dev)
@@ -421,17 +446,49 @@ def train(
                 loss = loss + impossible_penalty * compute_impossible_penalty(
                     logits, pb, pi, pj
                 )
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            scheduler.step()
+            loss_to_log = float(loss.item())
+            # Scale loss for accumulation so the optimizer step matches the
+            # full effective batch size's gradient magnitude.
+            loss = loss / grad_accum_steps
+            if scaler is not None:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
 
-            epoch_loss += float(loss.item())
+            accum_count += 1
+            if accum_count >= grad_accum_steps:
+                if scaler is not None:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+                accum_count = 0
+
+            epoch_loss += loss_to_log
             if gstep % 50 == 0:
                 lr_now = scheduler.get_last_lr()[0]
-                logger.info(f'  step {gstep}, loss={float(loss.item()):.4f}, lr={lr_now:.2e}')
+                logger.info(f'  step {gstep}, loss={loss_to_log:.4f}, lr={lr_now:.2e}')
             nb += 1
             gstep += 1
+
+        # Flush any leftover grads at end of epoch
+        if accum_count > 0:
+            if scaler is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
+            accum_count = 0
 
         train_loss = epoch_loss / max(nb, 1)
         metrics = evaluate(model, val_chunks, batch_size, dev)
@@ -499,6 +556,11 @@ def main():
     p.add_argument('--impossible_penalty', type=float, default=0.0)
     p.add_argument('--device', choices=['cuda', 'mps', 'cpu'], default=None)
     p.add_argument('--compile', dest='use_compile', action='store_true')
+    p.add_argument('--grad_accum_steps', type=int, default=1,
+                   help='Gradient accumulation. Effective batch = batch_size * grad_accum_steps. '
+                        'Use to fit larger effective batches on small VRAM.')
+    p.add_argument('--dtype', choices=['fp32', 'bf16', 'fp16'], default='fp32',
+                   help='Mixed precision. bf16 saves ~40%% VRAM, fp16 saves ~50%% (needs CUDA + GradScaler).')
     args = p.parse_args()
 
     train(
@@ -510,6 +572,7 @@ def main():
         large_model=args.large_model, resume_from=args.resume_from,
         impossible_penalty=args.impossible_penalty, device=args.device,
         use_compile=args.use_compile,
+        grad_accum_steps=args.grad_accum_steps, dtype=args.dtype,
     )
 
 
