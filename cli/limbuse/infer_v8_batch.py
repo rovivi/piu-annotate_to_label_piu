@@ -37,6 +37,7 @@ from piu_annotate.crawl import crawl_sscs
 from piu_annotate.ml.featurizers import ChartStructFeaturizer
 from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
 from piu_annotate.formats.notelines import fix_impossible_predictions
+from piu_annotate.ml.viterbi import viterbi_decode
 
 MAX_SEQ_LEN = 1024
 CHUNK_OVERLAP = 256
@@ -186,7 +187,14 @@ def flip_lr_logits(logits: np.ndarray) -> np.ndarray:
     return flipped
 
 
-def infer_chart(cs: ChartStruct, model: LimbSequenceTransformer, use_tta: bool = False) -> ChartStruct | None:
+def infer_chart(
+    cs: ChartStruct,
+    model: LimbSequenceTransformer,
+    use_tta: bool = False,
+    use_viterbi: bool = False,
+    viterbi_double_step_penalty: float = -0.5,
+    viterbi_repeat_either_penalty: float = -0.2,
+) -> ChartStruct | None:
     """Run v8/v9 model on a ChartStruct and write limb annotations. Returns None on failure."""
     try:
         sd = cs.singles_or_doubles()
@@ -195,33 +203,43 @@ def infer_chart(cs: ChartStruct, model: LimbSequenceTransformer, use_tta: bool =
         if len(x_base) == 0:
             return None
 
-        if use_tta:
-            # Pass 1: original
-            logits_orig = ar_infer_logits(model, x_base)
+        # When using Viterbi we always need full logits (not just argmax).
+        need_logits = use_tta or use_viterbi
 
-            # Pass 2: mirrored chart
-            cs_mirror = mirror_chartstruct(cs)
-            fcs_mirror = ChartStructFeaturizer(cs_mirror)
-            x_base_mirror = fcs_mirror.get_raw_features().astype(np.float32)
-            logits_mirror = ar_infer_logits(model, x_base_mirror)
+        if need_logits:
+            logits_final = ar_infer_logits(model, x_base)
 
-            # Flip mirrored logits back
-            logits_mirror_flipped = flip_lr_logits(logits_mirror)
+            if use_tta:
+                cs_mirror = mirror_chartstruct(cs)
+                fcs_mirror = ChartStructFeaturizer(cs_mirror)
+                x_base_mirror = fcs_mirror.get_raw_features().astype(np.float32)
+                logits_mirror = ar_infer_logits(model, x_base_mirror)
+                logits_mirror_flipped = flip_lr_logits(logits_mirror)
+                logits_final = (logits_final + logits_mirror_flipped) * 0.5
 
-            # Average
-            logits_final = (logits_orig + logits_mirror_flipped) * 0.5
-            preds = np.argmax(logits_final, axis=-1).astype(np.int32)
+            if use_viterbi:
+                preds = viterbi_decode(
+                    logits_final,
+                    x_base[:, 0],
+                    x_base[:, 6],
+                    double_step_penalty=viterbi_double_step_penalty,
+                    repeat_either_penalty=viterbi_repeat_either_penalty,
+                )
+            else:
+                preds = np.argmax(logits_final, axis=-1).astype(np.int32)
         else:
             preds = ar_infer(model, x_base)
 
-        # Hard-fix impossible same-foot bracket assignments
-        preds = fix_impossible_predictions(preds, x_base[:, 0], x_base[:, 6])
+        # Greedy hard-fix is redundant when Viterbi enforced the constraint globally.
+        if not use_viterbi:
+            preds = fix_impossible_predictions(preds, x_base[:, 0], x_base[:, 6])
 
         pred_coords = cs.get_prediction_coordinates()
         pred_limb_strs = [INT_TO_LIMB[int(p)] for p in preds]
         cs.add_limb_annotations(pred_coords, pred_limb_strs, 'Limb annotation')
         cs.metadata['Manual limb annotation'] = False
-        cs.metadata['generated_by'] = 'v9_mlx' + ('_tta' if use_tta else '')
+        suffix = ('_tta' if use_tta else '') + ('_viterbi' if use_viterbi else '')
+        cs.metadata['generated_by'] = 'v9_mlx' + suffix
         return cs
     except Exception as e:
         logger.warning(f'Failed to infer: {e}')
@@ -272,6 +290,12 @@ def main():
     ap.add_argument('--sd', default='singles', choices=['singles', 'doubles', 'both'])
     ap.add_argument('--limit', type=int, default=None, help='Limit charts for testing')
     ap.add_argument('--tta', action='store_true', help='Enable Test-Time Augmentation')
+    ap.add_argument('--viterbi', action='store_true',
+                    help='Decode with global Viterbi (constraints + soft transition penalties) instead of argmax+fix_impossible')
+    ap.add_argument('--viterbi_double_step_penalty', type=float, default=-0.5,
+                    help='Log-penalty for consecutive same-foot assignments (jacks). Less negative = milder')
+    ap.add_argument('--viterbi_repeat_either_penalty', type=float, default=-0.2,
+                    help='Log-penalty for consecutive "either" labels')
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -346,7 +370,14 @@ def main():
 
             try:
                 cs = ChartStruct.from_stepchart_ssc(stepchart)
-                cs = infer_chart(cs, model, use_tta=args.tta)
+                cs = infer_chart(
+                    cs,
+                    model,
+                    use_tta=args.tta,
+                    use_viterbi=args.viterbi,
+                    viterbi_double_step_penalty=args.viterbi_double_step_penalty,
+                    viterbi_repeat_either_penalty=args.viterbi_repeat_either_penalty,
+                )
                 if cs is None:
                     stats['failed'] += 1
                     continue
