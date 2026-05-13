@@ -109,42 +109,47 @@ def classify_pattern(
     cs: ChartStruct,
     fcs,
     gt_limb_char: str,
-    time_count: dict[float, int],
-    panel_to_last_t: dict[int, float],
+    pc_idx: int,
+    pred_coords,
+    siblings_at_same_time: list,
 ) -> list[str]:
-    """Return all bucket tags that apply to this (pred_coord, ground-truth) pair."""
-    row = cs.df.iloc[pc.row_idx]
-    line = str(row['Line with active holds']).replace('`', '')
-    n_dp = sum(1 for ch in line if ch in '12')
-    t = round(float(row['Time']), 5)
+    """Return all bucket tags that apply to this pred_coord.
+
+    Pulls structural fields from the featurizer (``fcs.arrowdatapoints_ft``)
+    rather than re-deriving from raw CSV — gives correct bracket / jack /
+    streak detection in one place.
+    """
+    adp = fcs.arrowdatapoints_ft[pc_idx]
+    n_dp = adp.num_downpress_in_line
 
     tags = []
+
     if n_dp == 1:
         tags.append('tap')
-        prev_t = panel_to_last_t.get(pc.arrow_pos)
-        if prev_t is not None and abs(t - prev_t) > 1e-3:
+        if getattr(adp, 'is_jack', False) or getattr(adp, 'n_same_panel_streak', 0) >= 2:
             tags.append('jack')
-        if 0 < t - panel_to_last_t.get(-1, t - 1e9) < 0.12:
+        # Stream: very tight inter-downpress time
+        tprev = adp.time_since_prev_downpress
+        if 0 < tprev < 0.12:
             tags.append('stream')
     elif n_dp == 2:
-        # Bracket-able lookup based on featurized field — simpler than re-deriving.
-        bracketable = bool(row.get('line_is_bracketable', False)) if 'line_is_bracketable' in cs.df.columns else False
-        if bracketable:
-            if gt_limb_char == 'l':
+        if adp.line_is_bracketable:
+            sibling_limb = None
+            if siblings_at_same_time:
+                sibling_limb = siblings_at_same_time[0]
+            if sibling_limb == gt_limb_char and gt_limb_char == 'l':
                 tags.append('bracket_ll')
-            elif gt_limb_char == 'r':
+            elif sibling_limb == gt_limb_char and gt_limb_char == 'r':
                 tags.append('bracket_rr')
             else:
                 tags.append('bracket_lr')
         else:
             tags.append('jump')
-    elif time_count.get(t, 0) >= 3:
+    elif n_dp >= 3:
         tags.append('triple')
 
-    # Hold release detection — only true if the line is purely a release (3s only)
-    has_three = '3' in line
-    has_one_two = any(ch in '12' for ch in line)
-    if has_three and not has_one_two:
+    # Hold release: prior line releases hold on this arrow
+    if adp.prior_line_only_releases_hold_on_this_arrow:
         tags.append('hold_release')
     return tags
 
@@ -172,31 +177,32 @@ def score_chart(pred_limbs, labels, pred_coords, fcs, cs) -> dict:
     pattern_correct = defaultdict(int)
     confusion = np.zeros((3, 3), dtype=int)  # rows=truth, cols=pred
 
-    panel_to_last_t = {}
-    time_count = defaultdict(int)
-    for pc in pred_coords:
-        t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
-        time_count[t] += 1
+    # Group pc_idxs by row_idx so we can pass sibling limb info into
+    # bracket classification.
+    row_to_pc_idxs: dict[int, list[int]] = defaultdict(list)
+    for idx, pc in enumerate(pred_coords):
+        row_to_pc_idxs[pc.row_idx].append(idx)
 
-    last_any_t = -1e9
     for idx, pc in enumerate(pred_coords):
         p = int(pred_limbs[idx])
         g = int(labels[idx])
         if 0 <= g <= 2:
             confusion[g, p] += 1
         gt_char = I2L.get(g, '?')
-        tags = classify_pattern(
-            pc, cs, fcs, gt_char, time_count, {**panel_to_last_t, -1: last_any_t},
-        )
-        t = round(float(cs.df.at[pc.row_idx, 'Time']), 5)
+        # Siblings: other pred_coord limbs on the same row, used for bracket
+        # left/right classification.
+        siblings = [
+            I2L.get(int(labels[s_idx]), '?')
+            for s_idx in row_to_pc_idxs[pc.row_idx]
+            if s_idx != idx
+        ]
+        tags = classify_pattern(pc, cs, fcs, gt_char, idx, pred_coords, siblings)
         correct = int(p == g)
         pattern_total['all'] += 1
         pattern_correct['all'] += correct
         for tag in tags:
             pattern_total[tag] += 1
             pattern_correct[tag] += correct
-        panel_to_last_t[pc.arrow_pos] = t
-        last_any_t = t
 
     return {
         'pattern_total': dict(pattern_total),

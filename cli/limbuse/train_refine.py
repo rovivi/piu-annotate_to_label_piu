@@ -98,9 +98,9 @@ def _train_mlx(
     # Coarse: load from .meta + safetensors, freeze.
     with open(coarse_meta_path) as f:
         cmeta = json.load(f)
-    coarse_input_dim = cmeta['input_dim'] + 4
+    # ``input_dim`` in .meta is the full transformer dim (already includes prev_limb)
     coarse = LimbSequenceTransformer(
-        input_dim=coarse_input_dim,
+        input_dim=cmeta['input_dim'],
         d_model=cmeta.get('d_model', 256),
         n_heads=cmeta.get('n_heads', 8),
         n_layers=cmeta.get('n_layers', 6),
@@ -237,7 +237,7 @@ def _train_mlx(
             mx.save_safetensors(best_path, dict(tree_flatten(refine.parameters())))
             with open(os.path.join(out_dir, f'{sd}-arrowlimbs_to_limb-mlx-best.meta'), 'w') as f:
                 json.dump({
-                    'input_dim': raw_dim + REFINE_EXTRA_DIM,
+                    'input_dim': raw_dim + REFINE_EXTRA_DIM + 4,  # raw + coarse_soft + prev_limb
                     'd_model': d_model, 'n_heads': n_heads,
                     'n_layers': n_layers, 'ffn_dim': ffn_dim,
                     'n_classes': 3, 'is_refine': True,
@@ -281,8 +281,9 @@ def _train_torch(
 
     with open(coarse_meta_path) as f:
         cmeta = json.load(f)
+    # ``input_dim`` in .meta is the full transformer dim (already includes prev_limb)
     coarse = build_model(
-        input_dim=cmeta['input_dim'] + 4,
+        input_dim=cmeta['input_dim'],
         d_model=cmeta.get('d_model', 256),
         n_heads=cmeta.get('n_heads', 8),
         n_layers=cmeta.get('n_layers', 6),
@@ -400,7 +401,7 @@ def _train_torch(
             save_safetensors(refine, best_path)
             with open(os.path.join(out_dir, f'{sd}-arrowlimbs_to_limb-torch-best.meta'), 'w') as f:
                 json.dump({
-                    'input_dim': raw_dim + REFINE_EXTRA_DIM,
+                    'input_dim': raw_dim + REFINE_EXTRA_DIM + 4,  # raw + coarse_soft + prev_limb
                     'd_model': d_model, 'n_heads': n_heads,
                     'n_layers': n_layers, 'ffn_dim': ffn_dim,
                     'n_classes': 3, 'is_refine': True,

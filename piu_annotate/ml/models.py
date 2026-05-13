@@ -172,9 +172,15 @@ class TransformerModelBase(ModelWrapper):
 
     def __init__(self, meta: dict[str, Any]):
         self.meta = meta
-        self.input_dim = meta['input_dim']        # raw (without prev_limb)
+        # ``meta['input_dim']`` follows the convention written by
+        # ``train_mlx.py`` and ``train_torch.py``: it is the FULL transformer
+        # input dim — including the 4 prev_limb one-hot dims. The numpy
+        # ``points`` array passed to ``predict_prob`` has the *raw* shape
+        # (features before prev_limb); ``_ar_logits`` appends the prev_limb
+        # one-hot internally.
+        self.full_input_dim = meta['input_dim']
         self.prev_dim = 4
-        self.full_input_dim = self.input_dim + self.prev_dim
+        self.input_dim = self.full_input_dim - self.prev_dim
         self.n_classes = meta.get('n_classes', 3)
 
     # subclass contract
@@ -242,8 +248,9 @@ class MLXModel(TransformerModelBase):
         import mlx.core as mx
         from piu_annotate.ml.mlx_architecture import LimbSequenceTransformer
 
+        # meta['input_dim'] is the full model input dim (already includes prev_limb)
         model = LimbSequenceTransformer(
-            input_dim=meta['input_dim'] + 4,  # includes prev_limb one-hot
+            input_dim=meta['input_dim'],
             d_model=meta.get('d_model', 256),
             n_heads=meta.get('n_heads', 8),
             n_layers=meta.get('n_layers', 6),
@@ -315,8 +322,9 @@ class TorchModel(TransformerModelBase):
         import torch
 
         dev = pick_device(prefer=device)
+        # meta['input_dim'] is the full model input dim (already includes prev_limb)
         model = build_model(
-            input_dim=meta['input_dim'] + 4,
+            input_dim=meta['input_dim'],
             d_model=meta.get('d_model', 256),
             n_heads=meta.get('n_heads', 8),
             n_layers=meta.get('n_layers', 6),
@@ -441,7 +449,7 @@ class ModelSuite:
             with open(cfg_path) as f:
                 cfg = json.load(f)
             meta = {
-                'input_dim': cfg['input_dim'] - 4,   # cfg stores full dim incl. prev_limb
+                'input_dim': cfg['input_dim'],   # full dim including prev_limb
                 'd_model':   cfg.get('d_model', 256),
                 'n_heads':   cfg.get('n_heads', 8),
                 'n_layers':  cfg.get('n_layers', 6),
