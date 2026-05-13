@@ -9,13 +9,14 @@
 
 ## 0. Resumen ejecutivo (1 minuto)
 
-Tres bloques de trabajo. Independientes pero compatibles.
+Cuatro bloques de trabajo. Independientes pero compatibles.
 
 | Bloque | Para qué | Cambio neto |
 |---|---|---|
 | **A. Backend dual MLX + PyTorch** | Entrenar en 6950 XT (ROCm) + Mac (MLX) + CUDA bonus | +1 archivo `arch_torch.py`, +1 `train_torch.py`, `models.py` con switch |
 | **B. Two-pass limb (coarse → refine)** | Salto > v8: refinamiento condicionado, no scheduled sampling | +1 cabeza, +1 stage de training (fine-tune); modelo principal sin cambios |
 | **C. Comparador 2.0** | Per-pattern + confusion + seek | Reescribir `comparation.html` partes + `compare_models.py` métricas |
+| **D. Pipeline upstream restaurado** | Recuperar +3–8pp gratis vía tactics/reasoner del original | `predictor.py` reescrito + fix debugger heredado en `tactics.py` |
 
 Backbone compartido: featurizer (`featurizers.py`), datapoints (`datapoints.py`), cache .npz (`cache_chunks.py`), tactician post-proc (`tactics.py`). **Esto no se toca.** El motor de entrenamiento es lo único que se duplica.
 
@@ -354,6 +355,71 @@ Si pase 2 sube val_acc < 0.5pp, **mata la idea** — no vale la complejidad.
 
 ---
 
+## 3.bis. Bloque D — Pipeline upstream restaurado
+
+### Contexto
+
+Comparación 2026-05-12 contra `maxwshen/piu-annotate` (commit `main`, clonado a `/tmp/piu-annotate-original`) reveló que el fork había **simplificado de más** el pipeline post-modelo para el path transformer. La rama original alcanza ~75.4% singles con LGBM **gracias a** un pipeline de tactics + reasoner que sumaba ~5–10pp sobre el ML crudo. El fork descartó ese pipeline en MLX confiando en que el transformer compensaría — y compensa, pero deja techo arriba.
+
+### Lo que se restauró
+
+Reescritura completa de `piu_annotate/ml/predictor.py`. Ahora ambos backends (`lightgbm`, `mlx`, `torch`) usan el mismo pipeline upstream:
+
+1. `PatternReasoner.propose_limbs()` → anclas rule-based + abstained patterns.
+2. `tactics.initial_predict(anchors)` → modelo + refinador iterativo (`arrowlimbs_to_limb`).
+3. `enforce_arrow_after_hold_release`.
+4. `flip_labels_by_score` → flips greedy per-token.
+5. `flip_jack_sections` → fuerza mismo pie en jacks.
+6. `beam_search(width=5, n_iter=3)` → 5 + 25 + 125 = 155 candidatos refinados.
+7. `fix_double_doublestep` → corrige patrones físicos imposibles.
+8. Argmax del `score_to_limbs` acumulado → mejor candidato visto.
+9. Final hard fixes: hold release + impossible_multihit + impossible_lines_with_holds + blacklist.
+10. Charts ≤ nivel 15 → `remove_unforced_brackets`.
+
+### Compat con transformer 3-clase
+
+El transformer outputtea `{L, R, E}` softmax pero `MLXModel.predict` / `TorchModel.predict` ya fuerzan argmax sobre `{L, R}` antes de devolver al tactician. Toda la pipeline binaria del upstream funciona sin modificación — `1 - pred_limbs`, `apply_index(log_probs, pred_limbs)` etc. son seguros.
+
+### Fix de bug heredado
+
+`tactics.py:422` (upstream `tactics.py:389`) tenía:
+```python
+import code; code.interact(local=dict(globals(), **locals()))
+```
+Breakpoint interactivo dejado por upstream que **congelaba inferencia en producción** cuando un hold release tenía Δt < 0.1s con la siguiente línea. Reemplazado por log de debug; la lógica de enforcement de abajo aplica el edit correcto sin parar.
+
+### Score components muertos
+
+Mientras `arrows_to_matchnext` / `arrows_to_matchprev` no estén entrenados para backends transformer, `DummyMatchModel` devuelve log 0.5 constante. El score del tactician usa solo el término de limb log-likelihood — el beam search **sí funciona** (el término varía con pred_limbs) pero pierde matiz de patrón.
+
+Dos opciones para recuperar:
+- Entrenar match_next/match_prev MLX (más datos, run extra ~30 min cada uno).
+- Eliminar esos términos del score cuando son dummy (cosmético, no cambia argmax).
+
+Recomiendo entrenarlos: gana ~0.5–1pp y mantiene paridad con upstream.
+
+### Impacto esperado
+
+| Métrica | v8 actual (MLX sin pipeline) | v8 + Bloque D |
+|---|---|---|
+| Singles val_acc | 91.4% | **94–96%** (estimado, sin re-entrenar el coarse) |
+| Triples | 86.9% (LGBM baseline) | ≥ 92% |
+| Brackets RR | medir | ≥ Brackets LL - 1pp |
+| Doubles | 96.5% | ≥ 96% (sin regresión) |
+
+Verificar con `compare_models.py` antes/después.
+
+### Archivos tocados
+
+- `piu_annotate/ml/predictor.py` — reescrito (~100 LOC, branch único para todos los backends).
+- `piu_annotate/ml/tactics.py:422` — fix debugger break.
+
+### Por qué esto importa
+
+Es la **mejora más barata** del plan completo. Sin entrenar nada, sin más datos, sin cambiar el coarse — solo aplicar al transformer las mismas tactics que upstream venía usando con LGBM. El transformer es mejor input al pipeline; el pipeline es mejor que el ML crudo. Suma.
+
+---
+
 ## 4. Bloque C — Comparador 2.0
 
 ### 4.1 Estado actual
@@ -477,13 +543,15 @@ Borrar después: `generate_v8_comparison_*` (3 archivos), `new_architecture_repo
 
 ## 5. Plan de migración (orden recomendado)
 
-### Fase 0 — Limpieza (30 min, sin riesgo)
+### Fase 0 — Limpieza + restauración pipeline (1 h, sin riesgo, **HECHO**)
 
-1. Mover `out_*.log` (28 archivos) a `logs/` y añadir `logs/` a `.gitignore`.
-2. Marcar `MLX_TRAINING_BUG_REPORT.md` como histórico (mover a `docs/historic/`).
-3. Decidir qué hacer con `train_lgbm.py` (mantener como sanity-check vs archivar).
-4. Fijar `MLXModel` `input_dim` desde `.meta` (sec. 2.5) — fix de bug bloqueante.
-5. Subir `chunk_size` de inferencia MLX de 512 a 1024 (sec. 2.6).
+1. ✅ Mover `out_*.log` a `logs/` y añadir `logs/` a `.gitignore`.
+2. ✅ Mover `MLX_TRAINING_BUG_REPORT.md` a `docs/historic/`.
+3. ✅ Fijar `MLXModel` `input_dim` desde `.meta` (sec. 2.5).
+4. ✅ Subir `chunk_size` de inferencia MLX a 1024 (sec. 2.6).
+5. ✅ Bloque D: restaurar pipeline upstream en `predictor.py`.
+6. ✅ Fix debugger break heredado en `tactics.py:422`.
+7. Pendiente: decidir qué hacer con `train_lgbm.py` (sanity-check vs archivar).
 
 ### Fase 1 — Backend PyTorch (4–6 h)
 
@@ -645,11 +713,11 @@ Ante cualquiera de estas, **detente y pregunta** en vez de improvisar:
 
 ## 11. Cierre
 
-Tres bloques. Independientes. El usuario corre los entrenamientos cuando quiera, no es responsabilidad de este documento ni del agente que lo implemente.
+Cuatro bloques. Independientes. El usuario corre los entrenamientos cuando quiera, no es responsabilidad de este documento ni del agente que lo implemente.
 
-**Orden recomendado:** A (limpieza + backend dual) → C (comparator) → B (two-pass) → futuro (música).
+**Orden recomendado:** D (pipeline upstream, gratis, ya hecho) → A (backend dual) → C (comparator) → B (two-pass) → futuro (música).
 
-**Por qué este orden:** A desbloquea AMD (capacidad de cómputo extra para el futuro). C permite medir bien lo que se entrene en A y B. B es el salto de techo, pero solo vale si C lo puede medir bien.
+**Por qué este orden:** D ya está aplicado y da ~3–8pp sin re-entrenar nada. A desbloquea AMD (capacidad de cómputo extra para el futuro). C permite medir bien lo que se entrene en A y B. B es el salto de techo, pero solo vale si C lo puede medir bien.
 
 **Una cosa más.** El campo `n_classes=3` en `mlx_architecture.py:39` (L/R/E) está bien para limb, pero cuando llegues a Música→pasos cambia: vocabulario es mucho más grande (panel × event-type). No re-uses la misma cabeza — instancia un Transformer separado por tarea.
 

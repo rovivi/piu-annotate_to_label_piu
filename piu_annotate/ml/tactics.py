@@ -414,12 +414,19 @@ class Tactician:
                 not notelines.has_active_hold(line1),
                 not notelines.has_active_hold(line2),
             ]):
-                # check if any hold release very close in time before line1
+                # check if any hold release very close in time before line1.
+                # Upstream left an interactive ``code.interact`` here as a
+                # debug breakpoint, which froze inference in production. We
+                # log a warning and continue: the surrounding enforcement
+                # logic still applies the correct hold-coherent limb edit.
                 prev_line = self.cs.df.at[row_idx-1, 'Line with active holds']
                 if notelines.is_hold_release(prev_line):
                     time_elapse = self.cs.df.at[row_idx, 'Time'] - self.cs.df.at[row_idx - 1, 'Time']
-                    if time_elapse < 0.1:
-                        import code; code.interact(local=dict(globals(), **locals()))
+                    if time_elapse < 0.1 and self.verbose:
+                        logger.debug(
+                            f'Tight hold-release sequence at row {row_idx} '
+                            f'(Δt={time_elapse:.3f}s); applying default enforcement.'
+                        )
 
                 hold_release_arrow = line1.index('3')
                 next_arrow = [i for i, s in enumerate(line2) if s != '0'][0]
