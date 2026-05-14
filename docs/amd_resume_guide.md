@@ -3,8 +3,9 @@
 > **Audiencia:** Rodrigo, retomando training en la máquina con 6950 XT (Linux + ROCm).
 > **Estado en el Mac:** v9-large-ft coarse (94.6% val) + v9-refine (92.75% val) entrenados.
 >   Comparator dice v9_coarse = 93.43% en benchmark de 60 charts; refine no mejoró overall.
-> **Hardware AMD asumido:** RX 6950 XT (RDNA2, gfx1030), 16 GB VRAM, plenty de RAM normal.
->   Linux con ROCm 6.x. El override `HSA_OVERRIDE_GFX_VERSION=10.3.0` es obligatorio.
+> **Hardware AMD real:** RX 6750 XT (RDNA2, Navi22), **12 GB VRAM**, RAM normal.
+>   Linux, PyTorch ROCm 6.1 (`torch-2.6.0+rocm6.1`), Python 3.13.
+>   El override `HSA_OVERRIDE_GFX_VERSION=10.3.0` funciona también para Navi22 (gfx1031).
 
 ---
 
@@ -20,30 +21,28 @@
 
 ---
 
-## 1. Setup ROCm + PyTorch
+## 1. Setup PyTorch ROCm (instalado ✅)
+
+PyTorch ROCm ya instalado en base conda (Python 3.13):
 
 ```bash
-# Sistema base
-sudo apt install rocm-dev rocm-libs rocminfo
+# Si hay que reinstalar:
+pip install torch --index-url https://download.pytorch.org/whl/rocm6.1
+pip install safetensors loguru tqdm numpy pandas lightgbm pyyaml scikit-learn
+pip install -e .
 
-# Verificar GPU vista por ROCm
-rocminfo | grep gfx        # debe imprimir gfx1030 o similar
-rocm-smi                    # muestra utilización + temp
-
-# Python env (asume conda/venv ya activo)
-pip install --upgrade pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2
-
-# Verificar PyTorch ve la GPU
+# Verificar
 HSA_OVERRIDE_GFX_VERSION=10.3.0 python -c "
 import torch
-print('CUDA available:', torch.cuda.is_available())
-print('Device 0:', torch.cuda.get_device_name(0))
-print('VRAM:', torch.cuda.get_device_properties(0).total_memory / 1024**3, 'GB')
+print('CUDA:', torch.cuda.is_available())
+print('Device:', torch.cuda.get_device_name(0))
+print('VRAM:', round(torch.cuda.get_device_properties(0).total_memory/1024**3, 1), 'GB')
 "
+# → CUDA: True  Device: AMD Radeon RX 6750 XT  VRAM: 12.0 GB
 ```
 
-Si el último comando imprime `Radeon RX 6950 XT` y `16.0 GB`, listo.
+> **Nota:** ROCm full stack NO necesario. El wheel de PyTorch bundlea HIP.
+> Advertencia `hipBLASLt unsupported architecture` es esperada en Navi22 — cae a hipblas, funciona igual.
 
 Otras deps:
 ```bash
@@ -53,26 +52,18 @@ pip install -e .   # piu_annotate package
 
 ---
 
-## 2. Transferir lo necesario desde el Mac
+## 2. Estado de datos (LISTO ✅)
 
-Solo dos cosas grandes a copiar (el resto está en git):
+Todo disponible localmente:
 
-| Qué | Path origen Mac | Tamaño | Para qué |
-|---|---|---|---|
-| Cache singles | `artifacts/cache/mlx-v9-singles/` | ~150 MB | Re-train singles sin re-featurizar |
-| Cache doubles | `artifacts/cache/mlx-v9-doubles/` | ~250 MB | Train doubles coarse |
-| Baseline JSON | `artifacts/benchmark_baseline_60.json` | ~10 KB | Comparator |
-| CSVs ground-truth | `artifacts/manual-chartstructs/visss-120524-eaware/` | ~80 MB | Comparator (NO se necesita para train si usas cache) |
+| Qué | Path | Estado |
+|---|---|---|
+| Cache singles (24 dims) | `artifacts/cache/torch-singles/` | 2534 npz ✅ |
+| Cache doubles (29 dims) | `artifacts/cache/torch-doubles/` | 1613 npz ✅ |
+| CSVs ground-truth | `artifacts/manual-chartstructs/visss-120524/` | 4262 csv ✅ |
 
-Comando recomendado:
-```bash
-# Desde la AMD box, asumiendo SSH al Mac
-rsync -avz mac:/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/cache/  ./artifacts/cache/
-rsync -avz mac:/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/manual-chartstructs/visss-120524-eaware  ./artifacts/manual-chartstructs/
-rsync -avz mac:/Users/rodrigo/dev/piu/piu-annotate_to_label_piu/artifacts/benchmark_baseline_60.json  ./artifacts/
-```
-
-Pesos de modelos MLX **NO se copian** — son del backend MLX, no cargan en PyTorch sin convertir. Entrenas de cero en torch.
+> Cache regenerado con featurizer actual (24/29 dims → +prev_limb = 28/33 modelo input).
+> Cache antiguo (18/23 dims) era de featurizer viejo — no compatible con train_torch.py.
 
 ---
 
@@ -81,15 +72,22 @@ Pesos de modelos MLX **NO se copian** — son del backend MLX, no cargan en PyTo
 ### 3.1 Doubles coarse (PRIORIDAD 1) — no existe con schema v9
 
 ```bash
+mkdir -p logs
 HSA_OVERRIDE_GFX_VERSION=10.3.0 python cli/limbuse/train_torch.py \
   --singles_or_doubles doubles \
   --manual_chart_struct_folder artifacts/cache/mlx-v9-doubles \
   --out_dir artifacts/models/visss-torch-v9-doubles \
   --epochs 25 --batch_size 8 --grad_accum_steps 4 --dtype bf16 \
   --large_model --lr 2e-4 --warmup_epochs 2 --patience 6 \
+  --save_by_ar \
   --device cuda \
-  2>&1 | tee logs/train_doubles_coarse_amd.log
+  2>&1 | tee logs/train_doubles_coarse_amd.log &
+
+# En otra terminal: dashboard en tiempo real
+python scripts/train_dashboard.py --log logs/train_doubles_coarse_amd.log
 ```
+
+`--save_by_ar`: guarda el checkpoint con mejor AR accuracy (autoregresiva, sin teacher forcing) → checkpoint más real para inferencia.
 
 **Por qué estos hiperparámetros:**
 - `batch_size 8 + grad_accum_steps 4` = batch efectivo 32, fits en 16 GB VRAM con bf16.
@@ -108,8 +106,11 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 python cli/limbuse/train_torch.py \
   --out_dir artifacts/models/visss-torch-v9-singles \
   --epochs 30 --batch_size 8 --grad_accum_steps 4 --dtype bf16 \
   --large_model --lr 2e-4 --warmup_epochs 2 --patience 8 \
+  --save_by_ar \
   --device cuda \
-  2>&1 | tee logs/train_singles_coarse_amd.log
+  2>&1 | tee logs/train_singles_coarse_amd.log &
+
+python scripts/train_dashboard.py --log logs/train_singles_coarse_amd.log
 ```
 
 **Target:** matchear ~94.6% val_acc del v9-large-ft del Mac. Si llega ahí, el backend PyTorch+ROCm es viable end-to-end.
@@ -148,7 +149,7 @@ refine.load_state_dict(refine_state)
 logger.info('Refine initialized from coarse weights')
 ```
 
-Aplica el patch, luego corre con LR muy bajo:
+El patch ya está integrado como `--coarse_init`. Corre con LR muy bajo:
 
 ```bash
 HSA_OVERRIDE_GFX_VERSION=10.3.0 python cli/limbuse/train_refine.py \
@@ -158,8 +159,11 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 python cli/limbuse/train_refine.py \
   --coarse_meta    artifacts/models/visss-torch-v9-singles/singles-arrows_to_limb-torch-best.meta \
   --out_dir artifacts/models/visss-torch-v9-singles-refine \
   --epochs 8 --batch_size 8 --lr 5e-5 --patience 3 \
+  --coarse_init \
   --device cuda \
-  2>&1 | tee logs/train_singles_refine_amd.log
+  2>&1 | tee logs/train_singles_refine_amd.log &
+
+python scripts/train_dashboard.py --log logs/train_singles_refine_amd.log
 ```
 
 **Target:** ≥ 95% val (mejorar sobre coarse 94.6%).
@@ -176,8 +180,11 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 python cli/limbuse/train_refine.py \
   --coarse_meta    artifacts/models/visss-torch-v9-doubles/doubles-arrows_to_limb-torch-best.meta \
   --out_dir artifacts/models/visss-torch-v9-doubles-refine \
   --epochs 8 --batch_size 8 --lr 5e-5 --patience 3 \
+  --coarse_init \
   --device cuda \
-  2>&1 | tee logs/train_doubles_refine_amd.log
+  2>&1 | tee logs/train_doubles_refine_amd.log &
+
+python scripts/train_dashboard.py --log logs/train_doubles_refine_amd.log
 ```
 
 ---

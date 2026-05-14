@@ -91,15 +91,6 @@ class LGBModel(ModelWrapper):
     def load(file: str) -> 'LGBModel':
         return LGBModel(lgb.Booster(model_file=file))
 
-    @staticmethod
-    def train(points: NDArray, labels: NDArray) -> 'LGBModel':
-        train_x, test_x, train_y, test_y = train_test_split(points, labels)
-        train_data = lgb.Dataset(train_x, label=train_y)
-        test_data = lgb.Dataset(test_x, label=test_y)
-        params = {'objective': 'binary', 'metric': 'binary_logloss'}
-        bst = lgb.train(params, train_data, valid_sets=[test_data])
-        return LGBModel(bst)
-
     def save(self, file: str) -> None:
         self.bst.save_model(file)
 
@@ -112,6 +103,70 @@ class LGBModel(ModelWrapper):
 
     def predict_log_prob(self, points: NDArray) -> NDArray:
         return np.log(np.maximum(self.predict_prob(points), 1e-10))
+
+
+class MatchLGBModel(ModelWrapper):
+    """LightGBM match_next or match_prev model.
+
+    Trained on features [x[i], x[i±1]] (concatenated pairs). At inference,
+    ``points`` has shape (N, D) raw features; this wrapper builds the pairwise
+    features internally and returns per-token probabilities.
+
+    Position 0 for match_prev and position N-1 for match_next have no pair;
+    they get probability [0.5, 0.5] (uncertain → constant contribution to score).
+    """
+
+    def __init__(self, bst: Booster, direction: str):
+        assert direction in ('next', 'prev')
+        self.bst = bst
+        self.direction = direction
+
+    @staticmethod
+    def load(file: str, direction: str) -> 'MatchLGBModel':
+        return MatchLGBModel(lgb.Booster(model_file=file), direction)
+
+    def _pair_features(self, points: NDArray) -> NDArray:
+        n = len(points)
+        if self.direction == 'next':
+            # index i → concat(x[i], x[i+1]); last row uses x[i-1] as neighbour (uncertain)
+            neighbours = np.concatenate([points[1:], points[-1:]], axis=0)
+        else:
+            # index i → concat(x[i], x[i-1]); first row uses x[1] as neighbour (uncertain)
+            neighbours = np.concatenate([points[:1], points[:-1]], axis=0)
+        return np.concatenate([points, neighbours], axis=1)
+
+    def _boundary_mask(self, n: int) -> np.ndarray:
+        """True at positions where pair prediction is ill-defined → use 0.5."""
+        mask = np.zeros(n, dtype=bool)
+        if self.direction == 'next':
+            mask[-1] = True
+        else:
+            mask[0] = True
+        return mask
+
+    def predict_prob(self, points: NDArray) -> NDArray:
+        n = len(points)
+        feat = self._pair_features(points)
+        p = self.bst.predict(feat)
+        out = np.stack([1.0 - p, p]).T
+        bm = self._boundary_mask(n)
+        out[bm] = 0.5
+        return out
+
+    def predict(self, points: NDArray) -> NDArray:
+        return (self.predict_prob(points)[:, 1] >= 0.5).astype(int)
+
+    def predict_log_prob(self, points: NDArray) -> NDArray:
+        return np.log(np.maximum(self.predict_prob(points), 1e-10))
+
+    @staticmethod
+    def train(points: NDArray, labels: NDArray) -> 'LGBModel':
+        train_x, test_x, train_y, test_y = train_test_split(points, labels)
+        train_data = lgb.Dataset(train_x, label=train_y)
+        test_data = lgb.Dataset(test_x, label=test_y)
+        params = {'objective': 'binary', 'metric': 'binary_logloss'}
+        bst = lgb.train(params, train_data, valid_sets=[test_data])
+        return LGBModel(bst)
 
 
 # ---------------------------------------------------------------------------
@@ -391,15 +446,29 @@ class ModelSuite:
                     self.model_arrowlimbs_to_limb = RefineModel(coarse, refine_loaded)
                 else:
                     self.model_arrowlimbs_to_limb = refine_loaded
-            # match models aren't trained for transformer backends → dummy
-            self.model_arrows_to_matchnext  = DummyMatchModel()
-            self.model_arrows_to_matchprev  = DummyMatchModel()
+            # match models: use LightGBM if trained alongside transformer weights,
+            # else dummy (constant log 0.5, beam-search no-op).
+            self.model_arrows_to_matchnext = self._load_lgbm_match('matchnext', sd)
+            self.model_arrows_to_matchprev = self._load_lgbm_match('matchprev', sd)
 
     # -- LGBM --
 
     def _load_lgbm(self, key: str) -> LGBModel:
         model_file = os.path.join(args['model.dir'], args[f'model.{key}'])
         return LGBModel.load(model_file)
+
+    def _load_lgbm_match(self, task: str, sd: str) -> ModelWrapper:
+        """Load LightGBM match model if present, else return DummyMatchModel.
+
+        task is 'matchnext' or 'matchprev'. The file is named
+        <sd>-arrows_to_<task>-lgbm.txt produced by train_match_models.py.
+        """
+        path = os.path.join(args['model.dir'], f'{sd}-arrows_to_{task}-lgbm.txt')
+        if os.path.exists(path):
+            logger.info(f'Loading LightGBM {task} model from {path}')
+            direction = 'next' if 'next' in task else 'prev'
+            return MatchLGBModel.load(path, direction)
+        return DummyMatchModel()
 
     # -- Transformer --
 

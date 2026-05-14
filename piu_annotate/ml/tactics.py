@@ -431,17 +431,20 @@ class Tactician:
                 hold_release_arrow = line1.index('3')
                 next_arrow = [i for i, s in enumerate(line2) if s != '0'][0]
 
-                hold_pc_idx = row_idx_to_prev_pc[row_idx][hold_release_arrow]
-                downpress_pc_idx = self.row_idx_to_pcs[row_idx + 1][0]
+                _hpc = row_idx_to_prev_pc[row_idx][hold_release_arrow]
+                if _hpc is None:
+                    continue
+                hold_pc_idx = int(_hpc)
+                downpress_pc_idx = int(self.row_idx_to_pcs[row_idx + 1][0])
 
-                hold_limb = pred_limbs[hold_pc_idx]
-                downpress_limb = pred_limbs[downpress_pc_idx]
+                hold_limb = int(pred_limbs[hold_pc_idx])
+                downpress_limb = int(pred_limbs[downpress_pc_idx])
 
                 if hold_release_arrow == next_arrow:
                     if hold_limb != downpress_limb:
                         pred_limbs[downpress_pc_idx] = hold_limb
                         n_edits += 1
-                
+
                 elif hold_release_arrow != next_arrow:
                     if hold_limb == downpress_limb:
                         pred_limbs[downpress_pc_idx] = 1 - hold_limb
@@ -550,6 +553,57 @@ class Tactician:
             logger.debug(f'Fixed {n_lines_fixed} impossible multihit lines')
         return pred_limbs
 
+    def enforce_fast_note_alternation(
+        self,
+        pred_limbs: NDArray,
+        dt_threshold: float = 0.04,
+    ) -> NDArray:
+        """Hard-enforce foot alternation for consecutive notes that are too
+        fast to be physically played as a jack (same foot twice).
+
+        For each pair of pred_coords at different row_idxs:
+          - If Δt < dt_threshold AND panels are not bracketable with one foot
+          - AND pred_limbs says same foot → flip the second to the other foot.
+
+        dt_threshold=0.04 s (40 ms) is below the 16th note at 375 BPM, which
+        is the practical jack-speed ceiling for competitive PIU. Notes closer
+        than this on non-adjacent panels are essentially always alternating.
+        """
+        pred_limbs = pred_limbs.copy()
+        times = self.cs.df['Time'].to_numpy()
+        n_fixed = 0
+
+        for i in range(len(self.pred_coords) - 1):
+            pc_a = self.pred_coords[i]
+            pc_b = self.pred_coords[i + 1]
+
+            # skip pairs on the same row (simultaneous: handled by multihit logic)
+            if pc_a.row_idx == pc_b.row_idx:
+                continue
+
+            dt = float(times[pc_b.row_idx] - times[pc_a.row_idx])
+            if dt >= dt_threshold:
+                continue
+
+            limb_a = pred_limbs[i]
+            limb_b = pred_limbs[i + 1]
+
+            # only act when model predicts same foot for both
+            if limb_a != limb_b or limb_a == 2:
+                continue
+
+            # allow same foot if the two panels are bracketable (one-foot multihit)
+            if notelines.one_foot_multihit_possible([pc_a.arrow_pos, pc_b.arrow_pos]):
+                continue
+
+            # same foot too fast on non-bracketable panels → flip second
+            pred_limbs[i + 1] = 1 - limb_b
+            n_fixed += 1
+
+        if self.verbose and n_fixed:
+            logger.debug(f'enforce_fast_note_alternation: fixed {n_fixed} same-foot pairs under {dt_threshold*1000:.0f}ms')
+        return pred_limbs
+
     def detect_impossible_lines_with_holds(self, pred_limbs: NDArray):
         """ Find parts of `pred_limbs` implying physically impossible
             limb combo to hit any single line, when considering active holds too.
@@ -574,7 +628,8 @@ class Tactician:
             # get pc idxs of active holds
             active_hold_panel_pos = adps[row_pc_idxs[0]].active_hold_idxs
             all_prev_pc_idxs = adps[row_pc_idxs[0]].prev_pc_idxs
-            hold_pc_idxs = [all_prev_pc_idxs[p] for p in active_hold_panel_pos]
+            hold_pc_idxs = [all_prev_pc_idxs[p] for p in active_hold_panel_pos
+                            if all_prev_pc_idxs[p] is not None]
 
             hold_pcs = [self.pred_coords[i] for i in hold_pc_idxs]
             hold_limbs = pred_limbs[hold_pc_idxs]

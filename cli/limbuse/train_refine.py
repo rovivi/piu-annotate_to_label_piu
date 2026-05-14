@@ -262,6 +262,7 @@ def _train_torch(
     folder, sd, out_dir, coarse_path, coarse_meta_path,
     epochs, batch_size, lr, seed, warmup_epochs, patience,
     limit_charts, label_smoothing, large_model, resume_from, device,
+    coarse_init: bool = False,
 ):
     import torch
     from piu_annotate.ml.arch_torch import (
@@ -304,7 +305,30 @@ def _train_torch(
         input_dim=refine_input_dim, d_model=d_model,
         n_heads=n_heads, n_layers=n_layers, ffn_dim=ffn_dim,
     ).to(dev)
-    if resume_from and os.path.exists(resume_from):
+    if coarse_init:
+        import safetensors.torch as _st
+        coarse_state = _st.load_file(coarse_path, device='cpu')
+        refine_state = refine.state_dict()
+        copied, skipped = 0, 0
+        for k, v in coarse_state.items():
+            if k not in refine_state:
+                skipped += 1
+                continue
+            rs = refine_state[k]
+            if v.shape == rs.shape:
+                refine_state[k] = v.to(rs.device)
+                copied += 1
+            elif k == 'input_proj.weight':
+                # coarse input: [raw(D), prev_limb(4)] → shape (d_model, D+4)
+                # refine input: [raw(D), coarse_soft(3), prev_limb(4)] → (d_model, D+7)
+                new_w = rs.clone()
+                new_w[:, :raw_dim] = v[:, :raw_dim]    # raw feature cols
+                new_w[:, -4:] = v[:, -4:]              # prev_limb cols; coarse_soft stays at init
+                refine_state[k] = new_w
+                copied += 1
+        refine.load_state_dict(refine_state)
+        logger.info(f'[torch] coarse-init: {copied} tensors copied, {skipped} skipped (shape/key mismatch)')
+    elif resume_from and os.path.exists(resume_from):
         load_safetensors(refine, resume_from, device=dev)
     logger.info(f'[torch] refine params: {sum(p.numel() for p in refine.parameters()):,}')
 
@@ -440,6 +464,11 @@ def main():
     p.add_argument('--resume_from', default=None)
     p.add_argument('--device', choices=['cuda', 'mps', 'cpu'], default=None,
                    help='Torch only. MLX always uses unified memory.')
+    p.add_argument('--coarse_init', action='store_true',
+                   help='Torch only. Initialize refine weights from coarse checkpoint. '
+                        'Copies matching tensors; input_proj gets raw+prev_limb from coarse, '
+                        'coarse_softmax cols start at default init. Recommended: avoids '
+                        'random-init degradation vs coarse baseline.')
     a = p.parse_args()
 
     kwargs = dict(
@@ -453,7 +482,7 @@ def main():
     if a.backend == 'mlx':
         _train_mlx(**kwargs)
     else:
-        _train_torch(device=a.device, **kwargs)
+        _train_torch(device=a.device, coarse_init=a.coarse_init, **kwargs)
 
 
 if __name__ == '__main__':

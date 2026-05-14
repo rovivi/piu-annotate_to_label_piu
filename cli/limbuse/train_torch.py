@@ -323,6 +323,7 @@ def train(
     use_compile: bool = False,
     grad_accum_steps: int = 1,
     dtype: str = 'fp32',
+    save_by_ar: bool = False,
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -503,8 +504,10 @@ def train(
         ar_acc = evaluate_ar_accuracy(model, val_chunks, batch_size, dev)
         logger.info(f'  AR val_acc={ar_acc*100:.1f}%  (oracle gap={(metrics["acc"]-ar_acc)*100:.1f}pp)')
 
-        if metrics['acc'] > best_acc:
-            best_acc = metrics['acc']
+        # Save best by AR accuracy (realistic metric) or teacher-forced val_acc.
+        track_acc = ar_acc if save_by_ar else metrics['acc']
+        if track_acc > best_acc:
+            best_acc = track_acc
             no_improve = 0
             best_path = os.path.join(out_dir, f'{sd}-arrows_to_limb-torch-best.safetensors')
             save_safetensors(model, best_path)
@@ -515,7 +518,8 @@ def train(
                     'n_layers': n_layers, 'ffn_dim': ffn_dim,
                     'n_classes': 3,
                 }, f)
-            logger.success(f'New best saved: val_acc={best_acc*100:.1f}%')
+            metric_label = 'AR val_acc' if save_by_ar else 'val_acc'
+            logger.success(f'New best saved: {metric_label}={best_acc*100:.1f}%')
         else:
             no_improve += 1
             logger.info(f'  No improvement {no_improve}/{patience}')
@@ -561,6 +565,9 @@ def main():
                         'Use to fit larger effective batches on small VRAM.')
     p.add_argument('--dtype', choices=['fp32', 'bf16', 'fp16'], default='fp32',
                    help='Mixed precision. bf16 saves ~40%% VRAM, fp16 saves ~50%% (needs CUDA + GradScaler).')
+    p.add_argument('--save_by_ar', action='store_true',
+                   help='Save best model by autoregressive accuracy instead of teacher-forced val_acc. '
+                        'More realistic: picks the checkpoint that performs best in real inference.')
     args = p.parse_args()
 
     train(
@@ -573,6 +580,7 @@ def main():
         impossible_penalty=args.impossible_penalty, device=args.device,
         use_compile=args.use_compile,
         grad_accum_steps=args.grad_accum_steps, dtype=args.dtype,
+        save_by_ar=args.save_by_ar,
     )
 
 

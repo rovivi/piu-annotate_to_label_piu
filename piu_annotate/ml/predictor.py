@@ -103,6 +103,10 @@ def predict(
     pred_limbs = tactics.detect_impossible_multihit(pred_limbs)
     pred_limbs = tactics.detect_impossible_lines_with_holds(pred_limbs)
 
+    # Temporal constraint: same foot twice in < 40ms on non-bracketable panels
+    # is physically impossible at any realistic BPM → hard-alternate.
+    pred_limbs = tactics.enforce_fast_note_alternation(pred_limbs)
+
     # Hard blacklist: deterministic fix for any remaining impossible same-foot
     # brackets. Specific to this fork (not in upstream); cheap insurance.
     x_raw = fcs.get_raw_features()
