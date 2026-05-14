@@ -1,0 +1,1 @@
+{"input_dim": 36, "d_model": 384, "n_heads": 8, "n_layers": 8, "ffn_dim": 1536, "n_classes": 3, "is_refine": true, "coarse_weights": "doubles-arrows_to_limb-torch-best.safetensors"}
