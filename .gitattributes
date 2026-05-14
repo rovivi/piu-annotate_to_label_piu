@@ -1,1 +1,2 @@
-*-lgbm.txt filter=lfs diff=lfs merge=lfs -text
+# No LFS — GitHub blocks LFS uploads on public forks.
+# Model files (55MB safetensors, 2MB lgbm) are under 100MB hard limit.
